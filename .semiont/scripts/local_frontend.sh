@@ -1,15 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build and run the Semiont frontend in a container.
+# Start a local Semiont frontend in a container.
+#
+# This script:
+#   1. Detects your container runtime (Apple Container, Docker, or Podman)
+#   2. Builds the frontend container image from .semiont/containers/Dockerfile.frontend
+#   3. Runs the frontend container (port 3000)
+#
+# The script stays attached and streams frontend logs. Press Ctrl+C to stop.
+# To run in the background: .semiont/scripts/local_frontend.sh &
 #
 # Prerequisites:
 #   - Container runtime (Apple Container, Docker, or Podman)
-#   - Backend running on http://localhost:4000
+#   - Backend running on http://localhost:4000 (see local_backend.sh)
+#
+# Options:
+#   --no-cache    Force a fresh container build (skip layer cache)
 #
 # Usage:
 #   .semiont/scripts/local_frontend.sh
 #   .semiont/scripts/local_frontend.sh --no-cache
+#
+# Equivalent without this script (npm required):
+#   npm install -g @semiont/cli
+#   semiont init
+#   semiont provision --service frontend
+#   semiont start --service frontend
 
 cd "$(git rev-parse --show-toplevel)"
 

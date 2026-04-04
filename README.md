@@ -6,67 +6,49 @@ A curated corpus of public domain literary texts from [Project Gutenberg](https:
 
 Explore this dataset using [Semiont](https://github.com/The-AI-Alliance/semiont), an open-source knowledge base platform for annotation and knowledge extraction.
 
-### Backend
+### Prerequisites
 
-#### Prerequisites
-
-- **Inference provider** — either an `ANTHROPIC_API_KEY` (cloud) or [Ollama](https://ollama.com/) running locally
+- **Container runtime** — [Apple Container](https://github.com/apple/container), [Docker](https://www.docker.com/), or [Podman](https://podman.io/)
+- **Inference provider** — an `ANTHROPIC_API_KEY` (cloud) or [Ollama](https://ollama.com/) running locally
 - **Neo4j** — a free cloud instance at [Neo4j Aura](https://neo4j.com/cloud/aura/) or Neo4j running locally
 
-#### Container
-
-Use [Apple Container](https://github.com/apple/container), [Docker](https://www.docker.com/), or [Podman](https://podman.io/). Replace `container` below with `docker` or `podman` as needed.
+Set these environment variables before running:
 
 ```bash
-container build --no-cache --tag semiont-backend --file .semiont/containers/Dockerfile.backend .
-container run --publish 4000:4000 \
-  --volume $(pwd):/kb \
-  --env NEO4J_URI=<your-neo4j-uri> \
-  --env NEO4J_USERNAME=<your-neo4j-username> \
-  --env NEO4J_PASSWORD=<your-neo4j-password> \
-  --env NEO4J_DATABASE=<your-neo4j-database> \
-  --env ANTHROPIC_API_KEY=<your-api-key> \
-  -it semiont-backend
+export NEO4J_URI=<your-neo4j-uri>
+export NEO4J_USERNAME=<your-neo4j-username>
+export NEO4J_PASSWORD=<your-neo4j-password>
+export NEO4J_DATABASE=<your-neo4j-database>
+export ANTHROPIC_API_KEY=<your-api-key>
 ```
 
-#### npm (local)
+### Backend
 
 ```bash
-npm install -g @semiont/cli neo4j-driver
-semiont serve
+.semiont/scripts/local_backend.sh
 ```
 
-`semiont serve` sets up and starts all services in one step.
+Starts PostgreSQL and the Semiont backend in containers. The script stays attached and streams logs — open a separate terminal for the frontend. Press Ctrl+C to stop.
 
-For full details see the [Semiont Local Setup Guide](https://github.com/The-AI-Alliance/semiont/blob/main/docs/LOCAL-SEMIONT.md).
+To run in the background instead: `.semiont/scripts/local_backend.sh &`
 
-### Verifying the backend
-
-Open **http://localhost:4000**. You should see a simple status page confirming the backend is running.
+Open **http://localhost:4000** to verify.
 
 ### Frontend
 
-#### Container
+In a separate terminal:
 
 ```bash
-container build --no-cache --tag semiont-frontend --file .semiont/containers/Dockerfile.frontend .
-container run --publish 3000:3000 -it semiont-frontend
+.semiont/scripts/local_frontend.sh
 ```
 
-#### npm (local)
-
-```bash
-npm install -g @semiont/cli
-semiont init
-semiont provision --service frontend
-semiont start -s frontend
-```
+Same as the backend — stays attached and streams logs. Press Ctrl+C to stop.
 
 Open **http://localhost:3000**.
 
 ### Logging in
 
-Once both backend and frontend are running, open **http://localhost:3000** and enter **http://localhost:4000** as the knowledge base URL. Log in with the username and password you created during backend setup.
+Enter **http://localhost:4000** as the knowledge base URL. Log in with the username and password created during backend setup.
 
 ### Using Semiont
 

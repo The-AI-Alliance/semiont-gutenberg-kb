@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Start a local backend: PostgreSQL + Semiont backend in containers.
+# Start a local Semiont backend: PostgreSQL + backend in containers.
+#
+# This script:
+#   1. Detects your container runtime (Apple Container, Docker, or Podman)
+#   2. Starts a PostgreSQL container (port 5432, database "semiont", password "localpass")
+#   3. Builds the backend container image from .semiont/containers/Dockerfile.backend
+#   4. Runs the backend container (port 4000), mounting the current KB directory
+#
+# The script stays attached and streams backend logs. Press Ctrl+C to stop.
+# To run in the background: .semiont/scripts/local_backend.sh &
 #
 # Prerequisites:
 #   - Container runtime (Apple Container, Docker, or Podman)
 #   - Environment variables: NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD,
 #     NEO4J_DATABASE, ANTHROPIC_API_KEY
 #
+# Options:
+#   --no-cache    Force a fresh container build (skip layer cache)
+#
 # Usage:
 #   .semiont/scripts/local_backend.sh
 #   .semiont/scripts/local_backend.sh --no-cache
+#
+# Equivalent without this script (npm required):
+#   npm install -g @semiont/cli neo4j-driver
+#   semiont serve
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -52,7 +68,7 @@ done
 
 # --- Resolve host address for container networking ---
 
-HOST_ADDR=$($RT run --rm node:20-alpine sh -c "ip route | awk '/default/{print \$3}'" 2>/dev/null)
+HOST_ADDR=$($RT run --rm node:22-alpine sh -c "ip route | awk '/default/{print \$3}'" 2>/dev/null)
 echo "Host address: $HOST_ADDR"
 
 # --- PostgreSQL ---
@@ -96,7 +112,7 @@ $RT build $CACHE_FLAG --tag semiont-backend \
 # --- Run backend ---
 
 echo ""
-echo "Starting backend..."
+echo "Starting backend on http://localhost:4000..."
 $RT run --publish 4000:4000 \
   --volume "$(pwd)":/kb \
   --env NEO4J_URI="$NEO4J_URI" \
