@@ -9,26 +9,19 @@ Explore this dataset using [Semiont](https://github.com/The-AI-Alliance/semiont)
 ### Prerequisites
 
 - **Container runtime** — [Apple Container](https://github.com/apple/container), [Docker](https://www.docker.com/), or [Podman](https://podman.io/)
-- **Inference provider** — an `ANTHROPIC_API_KEY` (cloud) or [Ollama](https://ollama.com/) running locally
-- **Neo4j** — a free cloud instance at [Neo4j Aura](https://neo4j.com/cloud/aura/) or Neo4j running locally
-
-Set these environment variables before running:
+- **Inference provider** — an `ANTHROPIC_API_KEY` ([Anthropic Console](https://console.anthropic.com/)) or [Ollama](https://ollama.com/) running locally
 
 ```bash
-export NEO4J_URI=<your-neo4j-uri>
-export NEO4J_USERNAME=<your-neo4j-username>
-export NEO4J_PASSWORD=<your-neo4j-password>
-export NEO4J_DATABASE=<your-neo4j-database>
 export ANTHROPIC_API_KEY=<your-api-key>
 ```
 
 ### Backend
 
 ```bash
-.semiont/scripts/local_backend.sh
+.semiont/scripts/local_backend.sh --email admin@example.com --password password
 ```
 
-Starts PostgreSQL and the Semiont backend in containers. The script stays attached and streams logs — open a separate terminal for the frontend. Press Ctrl+C to stop.
+Starts PostgreSQL and the Semiont backend in containers, and creates an admin user. The script stays attached and streams logs — open a separate terminal for the frontend. Press Ctrl+C to stop.
 
 To run in the background instead: `.semiont/scripts/local_backend.sh &`
 
