@@ -50,10 +50,11 @@ Open **http://localhost:4000** to verify.
 
 ### Frontend
 
-In a separate terminal:
+In a separate terminal, build and run the frontend container:
 
 ```bash
-.semiont/scripts/local_frontend.sh
+container build --tag semiont-frontend --file .semiont/containers/Dockerfile.frontend .
+container run --publish 3000:3000 -it semiont-frontend
 ```
 
 Open **http://localhost:3000** and enter **http://localhost:4000** as the knowledge base URL. Log in with the credentials created during backend setup.
