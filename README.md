@@ -2,28 +2,49 @@
 
 A curated corpus of public domain literary texts from [Project Gutenberg](https://www.gutenberg.org/) — organized for analysis, annotation, and knowledge extraction.
 
-## Running with Semiont
+## About This Dataset
+
+This repository contains **public domain literary texts** sourced from Project Gutenberg, organized by author and work. Texts are provided both as full ebooks and as individual sections to support fine-grained annotation and analysis.
+
+- **`data/ebooks/`** — Full plain-text ebooks organized by Project Gutenberg ID
+- **`authors/`** — Texts organized by author and title, with works split into named sections (chapters, acts, scenes, etc.)
+
+All content is in the public domain and freely available via [Project Gutenberg](https://www.gutenberg.org/).
+
+This corpus is well-suited for entity recognition across characters, authors, places, and historical references; mapping relationships between characters, themes, and narrative arcs; stylistic and linguistic analysis across authors and time periods; and building literary knowledge graphs from unstructured text.
+
+## Quick Start
 
 Explore this dataset using [Semiont](https://github.com/The-AI-Alliance/semiont), an open-source knowledge base platform for annotation and knowledge extraction.
 
 ### Prerequisites
 
-- **Container runtime** — [Apple Container](https://github.com/apple/container), [Docker](https://www.docker.com/), or [Podman](https://podman.io/)
-- **Inference provider** — an `ANTHROPIC_API_KEY` ([Anthropic Console](https://console.anthropic.com/)) or [Ollama](https://ollama.com/) running locally
+- A container runtime: [Apple Container](https://github.com/apple/container), [Docker](https://www.docker.com/), or [Podman](https://podman.io/)
+- An inference provider: `ANTHROPIC_API_KEY` or [Ollama](https://ollama.com/) for fully local inference
 
-```bash
-export ANTHROPIC_API_KEY=<your-api-key>
-```
+No npm or Node.js installation required — everything runs in containers.
 
 ### Backend
 
+Start the backend with one of the available inference configurations:
+
 ```bash
+# Fully local with Ollama (default, no API key needed)
 .semiont/scripts/local_backend.sh --email admin@example.com --password password
 ```
 
-Starts PostgreSQL and the Semiont backend in containers, and creates an admin user. The script stays attached and streams logs — open a separate terminal for the frontend. Press Ctrl+C to stop.
+```bash
+# Anthropic cloud inference
+export ANTHROPIC_API_KEY=<your-api-key>
+.semiont/scripts/local_backend.sh --config anthropic --email admin@example.com --password password
+```
 
-To run in the background instead: `.semiont/scripts/local_backend.sh &`
+```bash
+# See available configs
+.semiont/scripts/local_backend.sh --list-configs
+```
+
+Starts PostgreSQL and the Semiont backend in containers, and creates an admin user. The script stays attached and streams logs — open a separate terminal for the frontend. Press Ctrl+C to stop.
 
 Open **http://localhost:4000** to verify.
 
@@ -35,59 +56,34 @@ In a separate terminal:
 .semiont/scripts/local_frontend.sh
 ```
 
-Same as the backend — stays attached and streams logs. Press Ctrl+C to stop.
+Open **http://localhost:3000** and enter **http://localhost:4000** as the knowledge base URL. Log in with the credentials created during backend setup.
 
-Open **http://localhost:3000**.
+## What's Inside
 
-### Logging in
+The `.semiont/` directory contains the infrastructure to run a Semiont backend and frontend locally:
 
-Enter **http://localhost:4000** as the knowledge base URL. Log in with the username and password created during backend setup.
+```
+.semiont/
+├── config                        # Project name and settings
+├── compose/                      # Docker Compose files
+├── containers/                   # Dockerfiles for backend and frontend
+└── scripts/                      # Convenience scripts for local development
+```
 
-### Using Semiont
+Documents anywhere in the project root become resources in the knowledge base when you upload them through the UI or CLI.
 
-Semiont organizes work around seven composable flows. The ones most relevant to this dataset:
+## Inference Configuration
 
-- **Mark** — Annotate documents by selecting text manually or using AI-assisted detection (the ✨ button). Annotations follow the [W3C Web Annotation](https://github.com/The-AI-Alliance/semiont/blob/main/specs/docs/W3C-WEB-ANNOTATION.md) standard and can be highlights, comments, tags, or entity references.
-- **Bind** — Resolve entity references by linking annotations to other resources in the knowledge graph. The resolution wizard (🕸️🧙) searches for matching candidates and scores them.
-- **Yield** — Generate new resources from annotations. AI agents can produce summaries or new content from annotated passages.
-- **Match** — Search the knowledge base for candidates during entity resolution. Uses composite scoring across name similarity, entity type, graph connectivity, and optional LLM re-ranking.
-- **Gather** — Assemble surrounding context (text, metadata, graph neighborhood) to improve detection, resolution, and generation quality.
+Inference configs live in `.semiont/containers/semiontconfig/` and are selected with the `--config` flag. To create your own, add a `.toml` file to the same directory. See the [Configuration Guide](https://github.com/The-AI-Alliance/semiont/blob/main/docs/administration/CONFIGURATION.md) for the full reference.
 
-A typical workflow: upload documents → detect entities with AI → resolve references to build the knowledge graph → generate summaries or new resources from what you've found.
+## Documentation
 
-For deeper understanding, see the [architecture overview](https://github.com/The-AI-Alliance/semiont/blob/main/docs/ARCHITECTURE.md), the [project layout](https://github.com/The-AI-Alliance/semiont/blob/main/docs/PROJECT-LAYOUT.md), and the individual [flow docs](https://github.com/The-AI-Alliance/semiont/tree/main/docs/flows). The [API reference](https://github.com/The-AI-Alliance/semiont/blob/main/specs/docs/API.md) covers all HTTP endpoints.
+See the [Semiont repository](https://github.com/The-AI-Alliance/semiont) for full documentation:
 
-Other example knowledge bases: [gutenberg-kb](https://github.com/The-AI-Alliance/gutenberg-kb) (public domain literature) and [semiont-workflows](https://github.com/The-AI-Alliance/semiont-workflows) (end-to-end pipeline).
+- [Configuration Guide](https://github.com/The-AI-Alliance/semiont/blob/main/docs/administration/CONFIGURATION.md) — inference providers, vector search, graph database settings
+- [Project Layout](https://github.com/The-AI-Alliance/semiont/blob/main/docs/PROJECT-LAYOUT.md) — how `.semiont/` and resource files are organized
+- [Local Semiont](https://github.com/The-AI-Alliance/semiont/blob/main/docs/LOCAL-SEMIONT.md) — alternative setup paths including the Semiont CLI
 
----
+## License
 
-## About This Dataset
-
-This repository contains **public domain literary texts** sourced from Project Gutenberg, organized by author and work. Texts are provided both as full ebooks and as individual sections to support fine-grained annotation and analysis.
-
-The dataset includes:
-
-- **`data/ebooks/`** — Full plain-text ebooks organized by Project Gutenberg ID
-- **`authors/`** — Texts organized by author and title, with works split into named sections (chapters, acts, scenes, etc.)
-
-All content is in the public domain and freely available via [Project Gutenberg](https://www.gutenberg.org/).
-
-## Purpose
-
-This corpus is well-suited for:
-
-- Demonstrating annotation and knowledge extraction on literary texts
-- Entity recognition across characters, authors, places, and historical references
-- Mapping relationships between characters, themes, and narrative arcs
-- Stylistic and linguistic analysis across authors and time periods
-- Training annotation models on classic literature
-
-## Usage
-
-These materials are ideal for:
-
-- Testing entity recognition (characters, locations, historical figures, dates)
-- Exploring relationship mapping between characters and plot events
-- Demonstrating thematic clustering and topic modeling on literary text
-- Studying narrative structure across genres and eras
-- Building literary knowledge graphs from unstructured text
+Apache 2.0 — See [LICENSE](LICENSE) for details.
