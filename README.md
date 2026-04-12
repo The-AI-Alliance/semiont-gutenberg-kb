@@ -48,26 +48,22 @@ Starts PostgreSQL and the Semiont backend in containers, and creates an admin us
 
 Open **http://localhost:4000** to verify.
 
-### Frontend
+### Browse this knowledge base
 
-In a separate terminal:
+Start a Semiont browser by [running the container or desktop app](https://github.com/The-AI-Alliance/semiont#start-the-browser).
 
-```bash
-container run --publish 3000:3000 -it ghcr.io/the-ai-alliance/semiont-frontend:latest
-```
-
-Open **http://localhost:3000** and enter **http://localhost:4000** as the knowledge base URL. Log in with the credentials created during backend setup.
+Open **http://localhost:3000** and in the Knowledge Bases panel enter host `localhost`, port `4000`, and the email and password created during backend setup.
 
 ## What's Inside
 
-The `.semiont/` directory contains the infrastructure to run a Semiont backend and frontend locally:
+The `.semiont/` directory contains the infrastructure to run a Semiont backend locally:
 
 ```
 .semiont/
 ├── config                        # Project name and settings
-├── compose/                      # Docker Compose files
-├── containers/                   # Dockerfiles for backend and frontend
-└── scripts/                      # Convenience scripts for local development
+├── compose/                      # Docker Compose file for backend
+├── containers/                   # Dockerfile and inference configs for backend
+└── scripts/                      # Backend startup script
 ```
 
 Documents anywhere in the project root become resources in the knowledge base when you upload them through the UI or CLI.
