@@ -26,6 +26,61 @@ fail()    { echo -e "${RED}✗${RESET} $1" >&2; }
 banner()  { $QUIET || echo -e "\n${BOLD}$1${RESET}"; }
 run_cmd() { $QUIET || echo -e "  ${DIM}\$ $*${RESET}"; "$@"; }
 
+# Wait for an HTTP endpoint to return 2xx. Fail the script on timeout.
+wait_for_http() {
+  local name=$1 url=$2 tries=${3:-30}
+  for _ in $(seq 1 "$tries"); do
+    if curl -sf "$url" > /dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  fail "$name did not become ready at $url within ${tries}s."
+  exit 1
+}
+
+# Wait for Postgres to accept connections via pg_isready.
+wait_for_pg() {
+  local host=$1 port=$2 tries=${3:-30}
+  for _ in $(seq 1 "$tries"); do
+    if "$RT" run --rm postgres:15-alpine pg_isready -h "$host" -p "$port" > /dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "PostgreSQL did not become ready on $host:$port within ${tries}s."
+  exit 1
+}
+
+# Fail if a TCP port is already in use, naming the offending process. With
+# FORCE_KILL_PORTS=true, kill the holder and verify the port is free instead.
+require_port_free() {
+  local port=$1 service=$2 pid proc
+  pid=$(lsof -ti ":$port" 2>/dev/null || echo "")
+  if [[ -z "$pid" ]]; then return 0; fi
+  proc=$(ps -p "$pid" -o comm= 2>/dev/null || echo "<unknown>")
+  if $FORCE_KILL_PORTS; then
+    warn "Port $port (needed for $service) held by PID $pid ($proc) — killing (--force-kill-ports)."
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    pid=$(lsof -ti ":$port" 2>/dev/null || echo "")
+    if [[ -n "$pid" ]]; then
+      fail "Port $port still held after kill (PID $pid)."
+      exit 1
+    fi
+    return 0
+  fi
+  fail "Port $port (needed for $service) is held by PID $pid ($proc)."
+  echo "  Stop the conflicting process and re-run, or pass --force-kill-ports." >&2
+  exit 1
+}
+
+# List running containers — runtime-portable.
+list_containers() {
+  case "$RT" in
+    container) "$RT" list 2>/dev/null ;;
+    *) "$RT" ps 2>/dev/null ;;
+  esac
+}
+
 # --- Parse arguments ---
 
 CONFIG_NAME="ollama-gemma"
@@ -35,6 +90,8 @@ ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
 CLEAN_OLLAMA=false
 LIST_CONFIGS=false
+FORCE_KILL_PORTS=false
+OBSERVE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +101,8 @@ while [[ $# -gt 0 ]]; do
     --email) ADMIN_EMAIL="$2"; shift 2 ;;
     --password) ADMIN_PASSWORD="$2"; shift 2 ;;
     --clean-ollama) CLEAN_OLLAMA=true; shift ;;
+    --force-kill-ports) FORCE_KILL_PORTS=true; shift ;;
+    --observe) OBSERVE=true; shift ;;
     --quiet|-q) QUIET=true; shift ;;
     --help|-h)
       echo "Usage: start.sh [options]"
@@ -58,6 +117,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --email <email>       Admin user email (requires --password)"
       echo "  --password <pass>     Admin user password (requires --email)"
       echo "  --clean-ollama        Remove the Ollama model cache volume and exit"
+      echo "  --force-kill-ports    Kill any non-Semiont process holding a needed port"
+      echo "  --observe             Run a Jaeger sidecar and export OTel traces + metrics to it"
       echo "  --quiet, -q           Suppress informational output"
       echo "  --help, -h            Show this help"
       echo ""
@@ -76,6 +137,23 @@ while [[ $# -gt 0 ]]; do
     *) fail "Unknown argument: $1"; exit 1 ;;
   esac
 done
+
+# --- Validate admin credentials ---
+
+if [[ -n "$ADMIN_EMAIL" || -n "$ADMIN_PASSWORD" ]]; then
+  if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
+    fail "--email and --password must be provided together."
+    exit 1
+  fi
+  if [[ ! "$ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+    fail "Invalid --email: '$ADMIN_EMAIL'"
+    exit 1
+  fi
+  if [[ ${#ADMIN_PASSWORD} -lt 8 ]]; then
+    fail "--password must be at least 8 characters."
+    exit 1
+  fi
+fi
 
 # --- List or validate config ---
 
@@ -113,7 +191,11 @@ fi
 # Handle --clean-ollama
 if [[ "${CLEAN_OLLAMA}" == "true" ]]; then
   log "Removing Ollama model cache volume..."
-  run_cmd "${RT}" volume rm semiont-ollama-models 2>/dev/null && ok "Removed." || warn "Volume not found."
+  if run_cmd "${RT}" volume rm semiont-ollama-models 2>/dev/null; then
+    ok "Removed."
+  else
+    warn "Volume not found."
+  fi
   exit 0
 fi
 
@@ -124,35 +206,91 @@ log "Container runtime: ${BOLD}${RT}${RESET}"
 log "Config: ${BOLD}${CONFIG_NAME}${RESET}"
 log "npm registry: ${DIM}${NPM_REGISTRY}${RESET}"
 
-# --- Check required env vars ---
+# --- Resolve required env vars from config ---
+#
+# Config TOMLs reference env vars as ${VAR} (required) or ${VAR:-default}
+# (optional). We extract the required forms and validate them — except the
+# ones this script injects itself.
 
-if grep -q 'ANTHROPIC_API_KEY' "${CONFIG_FILE}"; then
-  if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-    fail "Config '${CONFIG_NAME}' requires ANTHROPIC_API_KEY but it is not set."
+INJECTED_VARS=" BACKEND_HOST NEO4J_HOST QDRANT_HOST OLLAMA_HOST POSTGRES_HOST SEMIONT_WORKER_SECRET ADMIN_EMAIL ADMIN_PASSWORD "
+
+config_required_vars() {
+  grep -oE '\$\{[A-Z_][A-Z0-9_]*\}' "$CONFIG_FILE" | sed 's/[${}]//g' | sort -u
+}
+
+USER_ENV_ARGS=()
+for var in $(config_required_vars); do
+  if [[ "$INJECTED_VARS" == *" $var "* ]]; then
+    continue
+  fi
+  if [[ -z "${!var:-}" ]]; then
+    fail "Config '${CONFIG_NAME}' references \${$var} but it is not set in the environment."
     exit 1
   fi
-fi
+  USER_ENV_ARGS+=(--env "$var=${!var}")
+done
 
 # --- Resolve host address for container networking ---
 
-HOST_ADDR=$($RT run --rm node:22-alpine sh -c "ip route | awk '/default/{print \$3}'" 2>/dev/null)
+HOST_ADDR=$("$RT" run --rm node:22-alpine sh -c "ip route | awk '/default/{print \$3}'" 2>/dev/null | tr -d '[:space:]')
+if [[ -z "$HOST_ADDR" ]]; then
+  fail "Could not determine host address for container networking."
+  echo "  The default-gateway probe (alpine container) returned no result." >&2
+  exit 1
+fi
 log "Host address: ${DIM}${HOST_ADDR}${RESET}"
+
+# --- Preflight: stop prior Semiont containers, verify required ports are free ---
+#
+# We do this up front (rather than per-service) so a port conflict surfaces
+# before any image work happens. Ollama (11434) is checked later because we
+# only need its port if no host Ollama is already serving it.
+
+banner "Preflight"
+
+for c in semiont-jaeger semiont-neo4j semiont-qdrant semiont-postgres semiont-backend semiont-worker semiont-smelter; do
+  run_cmd "$RT" stop "$c" 2>/dev/null || true
+done
+sleep 1
+
+require_port_free 7474 "Neo4j HTTP"
+require_port_free 7687 "Neo4j Bolt"
+require_port_free 6333 "Qdrant"
+require_port_free 5432 "PostgreSQL"
+require_port_free 4000 "Backend"
+require_port_free 9090 "Worker"
+require_port_free 9091 "Smelter"
+if $OBSERVE; then
+  require_port_free 16686 "Jaeger UI"
+  require_port_free 4318 "Jaeger OTLP"
+fi
+ok "Required ports are free"
+
+# --- Jaeger (observability) ---
+#
+# When --observe is set, run jaegertracing/all-in-one and configure the
+# Semiont processes to push OTLP traces + metrics there. The doc's Tier 3
+# metrics export over the same endpoint, so one env var covers both.
+
+OTEL_ARGS=()
+if $OBSERVE; then
+  banner "Jaeger"
+  run_cmd "$RT" run -d --rm \
+    --name semiont-jaeger \
+    -p 16686:16686 \
+    -p 4318:4318 \
+    jaegertracing/all-in-one:latest > /dev/null
+  wait_for_http "Jaeger UI" http://localhost:16686 30
+  ok "Jaeger UI on http://localhost:16686 (OTLP collector: ${HOST_ADDR}:4318)"
+  OTEL_ARGS=(--env OTEL_EXPORTER_OTLP_ENDPOINT="http://${HOST_ADDR}:4318")
+fi
 
 # --- Neo4j ---
 
 NEO4J_NAME="semiont-neo4j"
 banner "Neo4j"
-run_cmd $RT stop "$NEO4J_NAME" 2>/dev/null || true
-run_cmd $RT rm "$NEO4J_NAME" 2>/dev/null || true
-sleep 1
-PID_ON_PORT=$(lsof -ti :7687 2>/dev/null || echo "")
-if [[ -n "$PID_ON_PORT" ]]; then
-  log "Killing existing process on port 7687 (PID ${PID_ON_PORT})"
-  kill $PID_ON_PORT 2>/dev/null || true
-  sleep 1
-fi
 
-run_cmd $RT run -d --rm \
+run_cmd "$RT" run -d --rm \
   --name "$NEO4J_NAME" \
   -p 7474:7474 \
   -p 7687:7687 \
@@ -160,35 +298,20 @@ run_cmd $RT run -d --rm \
   -e NEO4J_ACCEPT_LICENSE_AGREEMENT=yes \
   neo4j:5-community > /dev/null
 
-for i in $(seq 1 30); do
-  if curl -sf http://localhost:7474 > /dev/null 2>&1; then break; fi
-  sleep 1
-done
+wait_for_http Neo4j http://localhost:7474 30
 ok "Neo4j on bolt://localhost:7687 (browser: http://localhost:7474)"
 
 # --- Qdrant ---
 
 QDRANT_NAME="semiont-qdrant"
 banner "Qdrant"
-run_cmd $RT stop "$QDRANT_NAME" 2>/dev/null || true
-run_cmd $RT rm "$QDRANT_NAME" 2>/dev/null || true
-sleep 1
-PID_ON_PORT=$(lsof -ti :6333 2>/dev/null || echo "")
-if [[ -n "$PID_ON_PORT" ]]; then
-  log "Killing existing process on port 6333 (PID ${PID_ON_PORT})"
-  kill $PID_ON_PORT 2>/dev/null || true
-  sleep 1
-fi
 
-run_cmd $RT run -d --rm \
+run_cmd "$RT" run -d --rm \
   --name "$QDRANT_NAME" \
   -p 6333:6333 \
   qdrant/qdrant > /dev/null
 
-for i in $(seq 1 15); do
-  if curl -sf http://localhost:6333/healthz > /dev/null 2>&1; then break; fi
-  sleep 1
-done
+wait_for_http Qdrant http://localhost:6333/healthz 15
 ok "Qdrant on http://localhost:6333"
 
 # --- Ollama ---
@@ -224,6 +347,7 @@ else
   log "No host Ollama detected — starting container..."
   run_cmd "${RT}" stop "${OLLAMA_NAME}" 2>/dev/null || true
   sleep 1
+  require_port_free 11434 "Ollama"
 
   OLLAMA_VOLUME=""
   if [ -d "${HOME}/.ollama" ]; then
@@ -246,10 +370,7 @@ else
     -v "${OLLAMA_VOLUME}" \
     ollama/ollama > /dev/null
 
-  for i in $(seq 1 30); do
-    if curl -sf http://localhost:11434/api/version > /dev/null 2>&1; then break; fi
-    sleep 1
-  done
+  wait_for_http Ollama http://localhost:11434/api/version 30
   ok "Ollama container on http://localhost:11434 (24 GB memory)"
 fi
 
@@ -257,27 +378,15 @@ fi
 
 POSTGRES_NAME="semiont-postgres"
 banner "PostgreSQL"
-run_cmd $RT stop "$POSTGRES_NAME" 2>/dev/null || true
-run_cmd $RT rm "$POSTGRES_NAME" 2>/dev/null || true
-sleep 1
-PID_ON_PORT=$(lsof -ti :5432 2>/dev/null || echo "")
-if [[ -n "$PID_ON_PORT" ]]; then
-  log "Killing existing process on port 5432 (PID ${PID_ON_PORT})"
-  kill $PID_ON_PORT 2>/dev/null || true
-  sleep 1
-fi
 
-run_cmd $RT run -d --rm \
+run_cmd "$RT" run -d --rm \
   --name "$POSTGRES_NAME" \
   -p 5432:5432 \
   -e POSTGRES_PASSWORD=localpass \
   -e POSTGRES_DB=semiont \
   postgres:15-alpine > /dev/null
 
-for i in $(seq 1 20); do
-  if $RT run --rm postgres:15-alpine pg_isready -h "$HOST_ADDR" -p 5432 > /dev/null 2>&1; then break; fi
-  sleep 0.5
-done
+wait_for_pg "$HOST_ADDR" 5432 20
 ok "PostgreSQL on port 5432"
 
 # --- Generate worker secret ---
@@ -290,21 +399,21 @@ log "Worker secret: ${DIM}(generated)${RESET}"
 banner "Building Images"
 
 log "Building backend image..."
-run_cmd $RT build $CACHE_FLAG --tag semiont-backend \
+run_cmd "$RT" build $CACHE_FLAG --tag semiont-backend \
   --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
   --build-arg SEMIONT_CONFIG="$CONFIG_FILE" \
-  --file .semiont/containers/Dockerfile .
+  --file .semiont/containers/Dockerfile.backend .
 ok "Backend image built"
 
 log "Building worker image..."
-run_cmd $RT build $CACHE_FLAG --tag semiont-worker \
+run_cmd "$RT" build $CACHE_FLAG --tag semiont-worker \
   --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
   --build-arg SEMIONT_CONFIG="$CONFIG_FILE" \
   --file .semiont/containers/Dockerfile.worker .
 ok "Worker image built"
 
 log "Building smelter image..."
-run_cmd $RT build $CACHE_FLAG --tag semiont-smelter \
+run_cmd "$RT" build $CACHE_FLAG --tag semiont-smelter \
   --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
   --build-arg SEMIONT_CONFIG="$CONFIG_FILE" \
   --file .semiont/containers/Dockerfile.smelter .
@@ -321,21 +430,13 @@ if [[ -n "$ADMIN_EMAIL" && -n "$ADMIN_PASSWORD" ]]; then
   log "Admin user: ${BOLD}${ADMIN_EMAIL}${RESET}"
 fi
 
-ANTHROPIC_ARGS=()
-if grep -q 'ANTHROPIC_API_KEY' "${CONFIG_FILE}"; then
-  ANTHROPIC_ARGS=(--env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY")
-fi
-
-$RT stop semiont-backend 2>/dev/null || true
-$RT rm semiont-backend 2>/dev/null || true
-sleep 1
-
-run_cmd $RT run -d \
+run_cmd "$RT" run -d --rm \
   --name semiont-backend \
   --publish 4000:4000 \
   --memory 8G \
   --volume "$(pwd)":/kb \
-  ${ANTHROPIC_ARGS[@]+"${ANTHROPIC_ARGS[@]}"} \
+  ${USER_ENV_ARGS[@]+"${USER_ENV_ARGS[@]}"} \
+  ${OTEL_ARGS[@]+"${OTEL_ARGS[@]}"} \
   --env POSTGRES_HOST="$HOST_ADDR" \
   --env NEO4J_HOST="$HOST_ADDR" \
   --env QDRANT_HOST="${HOST_ADDR}" \
@@ -345,25 +446,19 @@ run_cmd $RT run -d \
   semiont-backend > /dev/null
 
 log "Waiting for backend health..."
-for i in $(seq 1 120); do
-  if curl -sf http://localhost:4000/api/health > /dev/null 2>&1; then break; fi
-  sleep 1
-done
+wait_for_http Backend http://localhost:4000/api/health 120
 ok "Backend healthy"
 
 # --- Run worker pool ---
 
 banner "Starting Worker Pool"
 
-$RT stop semiont-worker 2>/dev/null || true
-$RT rm semiont-worker 2>/dev/null || true
-sleep 1
-
-run_cmd $RT run -d --rm \
+run_cmd "$RT" run -d --rm \
   --name semiont-worker \
   --memory 8G \
   --publish 9090:9090 \
-  ${ANTHROPIC_ARGS[@]+"${ANTHROPIC_ARGS[@]}"} \
+  ${USER_ENV_ARGS[@]+"${USER_ENV_ARGS[@]}"} \
+  ${OTEL_ARGS[@]+"${OTEL_ARGS[@]}"} \
   --env BACKEND_HOST="${HOST_ADDR}" \
   --env OLLAMA_HOST="${HOST_ADDR}" \
   --env NEO4J_HOST="${HOST_ADDR}" \
@@ -372,21 +467,19 @@ run_cmd $RT run -d --rm \
   --env SEMIONT_WORKER_SECRET="${SEMIONT_WORKER_SECRET}" \
   semiont-worker > /dev/null
 
-ok "Worker pool started (health: http://localhost:9090)"
+wait_for_http Worker http://localhost:9090/health 30
+ok "Worker pool healthy (http://localhost:9090)"
 
 # --- Run smelter ---
 
 banner "Starting Smelter"
 
-$RT stop semiont-smelter 2>/dev/null || true
-$RT rm semiont-smelter 2>/dev/null || true
-sleep 1
-
-run_cmd $RT run -d --rm \
+run_cmd "$RT" run -d --rm \
   --name semiont-smelter \
   --memory 4G \
   --publish 9091:9091 \
-  ${ANTHROPIC_ARGS[@]+"${ANTHROPIC_ARGS[@]}"} \
+  ${USER_ENV_ARGS[@]+"${USER_ENV_ARGS[@]}"} \
+  ${OTEL_ARGS[@]+"${OTEL_ARGS[@]}"} \
   --env BACKEND_HOST="${HOST_ADDR}" \
   --env OLLAMA_HOST="${HOST_ADDR}" \
   --env QDRANT_HOST="${HOST_ADDR}" \
@@ -395,13 +488,14 @@ run_cmd $RT run -d --rm \
   --env SEMIONT_WORKER_SECRET="${SEMIONT_WORKER_SECRET}" \
   semiont-smelter > /dev/null
 
-ok "Smelter started (health: http://localhost:9091)"
+wait_for_http Smelter http://localhost:9091/health 30
+ok "Smelter healthy (http://localhost:9091)"
 
 # --- Tail logs ---
 
 banner "Containers"
-$RT list 2>/dev/null | head -1
-$RT list 2>/dev/null | grep semiont- || true
+list_containers | head -1
+list_containers | grep semiont- || true
 
 echo -e "\033[2m[$(date '+%Y-%m-%d %H:%M:%S')] start.sh containers ready\033[0m"
 
@@ -410,12 +504,12 @@ log "Backend: semiont-backend | Worker: semiont-worker | Smelter: semiont-smelte
 log "Press Ctrl+C to stop"
 
 sleep 2
-($RT logs --follow semiont-backend 2>/dev/null || true) &
-LOG_PIDS=$!
-($RT logs --follow semiont-worker 2>/dev/null || true) &
-LOG_PIDS="$LOG_PIDS $!"
-($RT logs --follow semiont-smelter 2>/dev/null || true) &
-LOG_PIDS="$LOG_PIDS $!"
+("$RT" logs --follow semiont-backend 2>/dev/null || true) &
+LOG_PIDS=("$!")
+("$RT" logs --follow semiont-worker 2>/dev/null || true) &
+LOG_PIDS+=("$!")
+("$RT" logs --follow semiont-smelter 2>/dev/null || true) &
+LOG_PIDS+=("$!")
 
-trap "kill $LOG_PIDS 2>/dev/null" EXIT
+trap 'kill "${LOG_PIDS[@]}" 2>/dev/null' EXIT
 wait || true
