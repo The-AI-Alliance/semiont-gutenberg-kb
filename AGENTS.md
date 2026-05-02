@@ -20,7 +20,7 @@ If you're an AI assistant working in this repo, this file is your orientation. T
 
 | Skill | What it does | New SDK verbs |
 |---|---|---|
-| [`ingest-corpus`](skills/ingest-corpus/) | Walk the repo, create one resource per file | `yield.resource` |
+| [`ingest-corpus`](skills/ingest-corpus/) | Walk the repo, declare the KB's entity-type vocabulary, create one resource per file | `frame.addEntityTypes`, `yield.resource` |
 | [`mark-characters`](skills/mark-characters/) | Detect Character mentions (named + descriptive) | `mark.assist` (linking + descriptive references) |
 | [`mark-places`](skills/mark-places/) | Detect Place mentions | `mark.assist` (linking) |
 | [`assess-dangerous-situations`](skills/assess-dangerous-situations/) | Flag spans of physical / moral / supernatural danger | `mark.assist` (assessing) |
