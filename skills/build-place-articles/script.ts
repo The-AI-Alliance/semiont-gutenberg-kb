@@ -10,8 +10,8 @@
 
 import {
   SemiontClient,
-  annotationId,
   resourceId as ridBrand,
+  type AnnotationId,
   type GatheredContext,
   type ResourceId,
 } from '@semiont/sdk';
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   const all = await semiont.browse.resources({ limit: 1000 });
   const passages = all.filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'));
 
-  type AnnoRef = { rId: ResourceId; annId: string; text: string; entityTypes: string[] };
+  type AnnoRef = { rId: ResourceId; annId: AnnotationId; text: string; entityTypes: string[] };
   const placeAnnotations: AnnoRef[] = [];
   for (const r of passages) {
     const rId = ridBrand(r['@id']);
@@ -89,12 +89,11 @@ async function main(): Promise<void> {
 
   for (const [_, anns] of clusters) {
     const sample = anns[0];
-    const sampleAnnId = annotationId(sample.annId);
 
-    const gather = await semiont.gather.annotation(sampleAnnId, sample.rId, { contextWindow: 1500 });
+    const gather = await semiont.gather.annotation(sample.annId, sample.rId, { contextWindow: 1500 });
     const context = gather.response as GatheredContext;
 
-    const matchResult = await semiont.match.search(sample.rId, sampleAnnId, context, {
+    const matchResult = await semiont.match.search(sample.rId, sample.annId, context, {
       limit: 5,
       useSemanticScoring: true,
     });
@@ -129,7 +128,7 @@ async function main(): Promise<void> {
     }
 
     for (const a of anns) {
-      await semiont.bind.body(a.rId, annotationId(a.annId), [
+      await semiont.bind.body(a.rId, a.annId, [
         {
           op: 'add',
           item: { type: 'SpecificResource', source: targetResourceId, purpose: 'linking' },
