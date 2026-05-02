@@ -14,6 +14,9 @@
  * Fetch a Project Gutenberg ebook URL and return its raw text.
  * Project Gutenberg serves UTF-8 plain text at predictable URLs like:
  *   https://www.gutenberg.org/cache/epub/<id>/pg<id>.txt
+ *
+ * Example: downloadGutenbergText("https://www.gutenberg.org/cache/epub/61093/pg61093.txt")
+ *   // Aeschylus, Prometheus Bound (standalone edition)
  */
 export async function downloadGutenbergText(url: string): Promise<string> {
   const response = await fetch(url, {
