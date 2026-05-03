@@ -3,10 +3,21 @@
  * real-world phenomena the work touches.
  *
  * Iterates over works in the corpus (one per author/work directory). For each
- * work, runs a creative pass via mark.assist + yield.fromAnnotation to
- * identify relevant historical anchors (the era of the author, prior tradition,
- * audience and venue, real events that shaped the work, philosophical/religious
- * concepts) and synthesize HistoricalContext resources with Wikipedia citations.
+ * target passage, mark.assist identifies historical anchors (the era of the
+ * author, prior tradition, audience and venue, real events, philosophical /
+ * religious concepts), and yield.fromAnnotation synthesizes a HistoricalContext
+ * resource per anchor — model writes the body grounded in the gathered
+ * context, with the Wikipedia URL woven in via the prompt.
+ *
+ * KNOWN ISSUE — entity-type loss on synthesized resources:
+ *   yield.fromAnnotation's GenerationOptions does not accept entityTypes
+ *   (see @semiont/sdk's namespaces/types.ts:GenerationOptions and the bus
+ *   payload in yield.ts:188-198). Synthesized HistoricalContext resources
+ *   here do NOT get the 'HistoricalContext' / 'Historical' / 'Wikipedia'
+ *   entity-type stamps — `browse.resources({ entityType: 'HistoricalContext' })`
+ *   will miss them. The bound annotations still carry the historical-event
+ *   tags. Upstream fix: add entityTypes to GenerationOptions in the SDK.
+ *   Tracked for a later pass.
  *
  * Usage: tsx skills/build-historical-context/script.ts [<workResourceId>] [--interactive]
  */
@@ -14,9 +25,10 @@
 import {
   SemiontClient,
   resourceId as ridBrand,
+  type GatheredContext,
   type ResourceId,
 } from '@semiont/sdk';
-import { wikipediaSearch, formatExternalReferences, type ExternalRef } from '../../src/wikipedia.js';
+import { wikipediaSearch } from '../../src/wikipedia.js';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
 
 function slugify(text: string): string {
@@ -116,22 +128,39 @@ single tag value per anchor.
       seenAnchors.add(text.toLowerCase());
 
       const wikiUrl = await wikipediaSearch(text);
-      const refs: ExternalRef[] = wikiUrl ? [{ term: text, url: wikiUrl }] : [];
-      const externalRefs = formatExternalReferences(refs);
+      const externalRefsLine = wikiUrl
+        ? `End with an "## External references" section as a markdown bullet list including: - [${text}](${wikiUrl}) — Wikipedia`
+        : 'No Wikipedia URL was found; do not include an External references section.';
+      const prompt =
+        `Write a short historical-context article about "${text}" — a real-world historical anchor ` +
+        `(event, era, tradition, institution, or concept) referenced by literary works in this corpus. ` +
+        `Use the gathered context from the source passage to ground the article.` +
+        `\n\nStructure:\n` +
+        `  - Opening definition paragraph (what this anchor refers to).\n` +
+        `  - Historical period and significance.\n` +
+        `  - How this anchor would have shaped or surfaced in the literature of its time.\n` +
+        `\n${externalRefsLine}\n` +
+        `Write in a neutral, encyclopedic tone — model on a curated wiki article. Keep it to ~3 paragraphs.`;
 
-      const body =
-        `# ${text}\n\n` +
-        `Historical context relevant to literary works in this corpus.\n\n` +
-        `Generated stub — replace with curated content as desired.\n\n` +
-        externalRefs;
-
-      const { resourceId: newRId } = await semiont.yield.resource({
-        name: text,
-        file: Buffer.from(body, 'utf-8'),
-        format: 'text/markdown',
-        entityTypes: ['HistoricalContext', 'Historical', 'Wikipedia'],
+      // gather context for the anchor's annotation, then synthesize from it.
+      const gather = await semiont.gather.annotation(ann.id, rId, { contextWindow: 1500 });
+      const context = gather.response as GatheredContext;
+      // entityTypes intentionally NOT passed — see file header.
+      const yieldEvent = await semiont.yield.fromAnnotation(rId, ann.id, {
+        title: text,
         storageUri: `file://generated/historical-${slugify(text)}.md`,
+        context,
+        prompt,
       });
+      if (yieldEvent.kind !== 'complete') {
+        console.warn(`  unexpected yield event: ${yieldEvent.kind} for "${text}"`);
+        continue;
+      }
+      const newRId = (yieldEvent.data.result as { resourceId?: string } | undefined)?.resourceId;
+      if (!newRId) {
+        console.warn(`  yield.fromAnnotation gave no resourceId for "${text}"`);
+        continue;
+      }
       synthesized++;
       console.log(`  + "${text}" → ${newRId}${wikiUrl ? ` (Wikipedia: ${wikiUrl})` : ''}`);
     }

@@ -3,8 +3,20 @@
  *
  * Cluster character annotations by canonical text, match each cluster against
  * existing Character resources (including pre-curated articles ingested by
- * skill 1), synthesize new ones with Wikipedia citations otherwise, bind
- * annotations.
+ * skill 1), synthesize new ones with yield.fromAnnotation otherwise, bind
+ * annotations. The model writes the article body grounded in the gathered
+ * context of a sample passage; the Wikipedia URL is woven into an External
+ * references section via the prompt.
+ *
+ * KNOWN ISSUE — entity-type loss on synthesized resources:
+ *   yield.fromAnnotation's GenerationOptions does not accept entityTypes
+ *   (see @semiont/sdk's namespaces/types.ts:GenerationOptions and the bus
+ *   payload in yield.ts:188-198). That means synthesized Character resources
+ *   here do NOT get a 'Character' entity-type stamp — `browse.resources({
+ *   entityType: 'Character' })` will miss them. The bound annotations still
+ *   carry the Character tag in their tagging-body values, so annotation-side
+ *   queries work. Upstream fix: add entityTypes to GenerationOptions in the
+ *   SDK + bus protocol + backend handler. Tracked for a later pass.
  *
  * Usage: tsx skills/build-character-articles/script.ts [--interactive]
  */
@@ -16,7 +28,7 @@ import {
   type GatheredContext,
   type ResourceId,
 } from '@semiont/sdk';
-import { wikipediaSearch, formatExternalReferences } from '../../src/wikipedia.js';
+import { wikipediaSearch } from '../../src/wikipedia.js';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
 
 const MATCH_THRESHOLD = Number(process.env.MATCH_THRESHOLD ?? 30);
@@ -109,24 +121,39 @@ async function main(): Promise<void> {
       console.log(`  ↪ "${sample.text}" → ${top.name} (existing, score ${top.score})`);
     } else {
       const wikiUrl = await wikipediaSearch(sample.text);
-      const externalRefs = wikiUrl
-        ? formatExternalReferences([{ term: sample.text, url: wikiUrl }])
-        : '';
-      const body =
-        `# ${sample.text}\n\n` +
-        `Character referenced in this corpus. Generated stub — replace with curated content as desired.\n\n` +
-        `**Type(s):** ${sample.entityTypes.join(', ')}\n\n` +
-        `Mentioned in ${anns.length} passage(s) across the corpus.\n\n` +
-        externalRefs;
+      const externalRefsLine = wikiUrl
+        ? `End with an "## External references" section as a markdown bullet list including: - [${sample.text}](${wikiUrl}) — Wikipedia`
+        : 'No Wikipedia URL was found; do not include an External references section.';
+      const prompt =
+        `Write a wiki-style article about the character "${sample.text}" referenced in this literary corpus. ` +
+        `The character is tagged with type(s): ${sample.entityTypes.join(', ')}, and is mentioned in ${anns.length} ` +
+        `passage(s) across the corpus. Use the gathered context from the source passage to ground the article. ` +
+        `\n\nStructure:\n` +
+        `  - Opening definition paragraph (who they are, in one or two sentences).\n` +
+        `  - Role in the work (mythological / historical / literary context where applicable).\n` +
+        `  - Key actions or attributes evident from the source passages.\n` +
+        `  - Relationships hinted at in the source.\n` +
+        `\n${externalRefsLine}\n` +
+        `Write in a neutral, encyclopedic tone — model on a curated wiki article.`;
 
-      const { resourceId: newRId } = await semiont.yield.resource({
-        name: sample.text,
-        file: Buffer.from(body, 'utf-8'),
-        format: 'text/markdown',
-        entityTypes: ['Character', ...sample.entityTypes],
+      // entityTypes intentionally NOT passed — yield.fromAnnotation's
+      // GenerationOptions doesn't accept it (see file header).
+      const yieldEvent = await semiont.yield.fromAnnotation(sample.rId, sample.annId, {
+        title: sample.text,
         storageUri: `file://generated/character-${slugify(sample.text)}.md`,
+        context,
+        prompt,
       });
-      targetResourceId = newRId as unknown as string;
+      if (yieldEvent.kind !== 'complete') {
+        console.warn(`  unexpected yield event: ${yieldEvent.kind} for "${sample.text}"`);
+        continue;
+      }
+      const newRId = (yieldEvent.data.result as { resourceId?: string } | undefined)?.resourceId;
+      if (!newRId) {
+        console.warn(`  yield.fromAnnotation gave no resourceId for "${sample.text}"`);
+        continue;
+      }
+      targetResourceId = newRId;
       synthesized++;
       console.log(`  + "${sample.text}" → ${newRId} (synthesized${wikiUrl ? `, Wikipedia: ${wikiUrl}` : ''})`);
     }
