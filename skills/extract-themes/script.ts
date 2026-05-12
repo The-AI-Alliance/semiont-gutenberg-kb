@@ -95,7 +95,8 @@ async function main(): Promise<void> {
     const annotations = await semiont.browse.annotations(rId);
     for (const ann of annotations) {
       if (ann.motivation !== 'linking') continue;
-      const tagValues = (ann.body ?? [])
+      const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+      const tagValues = bodies
         .filter((b: any) => b.type === 'TextualBody' && b.purpose === 'tagging')
         .flatMap((b: any) => (Array.isArray(b.value) ? b.value : [b.value]))
         // Keep only the discovered theme labels — drop the umbrella 'Theme' entity-type tag.
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
 
       // Only annotations that *also* carry the umbrella 'Theme' tag are theme spans
       // (this filters out other linking annotations the corpus may have).
-      const carriesUmbrella = (ann.body ?? []).some(
+      const carriesUmbrella = bodies.some(
         (b: any) =>
           b.type === 'TextualBody' &&
           b.purpose === 'tagging' &&
@@ -111,7 +112,17 @@ async function main(): Promise<void> {
       );
       if (!carriesUmbrella) continue;
 
-      const text = ann.target?.selector?.exact ?? '';
+      const target = ann.target;
+      const selectors =
+        typeof target === 'string' || !target.selector
+          ? []
+          : Array.isArray(target.selector)
+            ? target.selector
+            : [target.selector];
+      let text = '';
+      for (const s of selectors) {
+        if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
+      }
       for (const label of tagValues) {
         if (!themesByLabel.has(label)) themesByLabel.set(label, []);
         themesByLabel.get(label)!.push({ rId, rName: r.name ?? r['@id'], text });

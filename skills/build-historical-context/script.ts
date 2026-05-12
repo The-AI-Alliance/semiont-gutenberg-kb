@@ -126,11 +126,22 @@ single tag value per anchor.
       if (ann.motivation !== 'linking') return false;
       // Heuristic: anchors are short tagged spans. Skip annotations bound to
       // existing resources (those are likely from prior skills).
-      return !ann.body?.some((b: any) => b.type === 'SpecificResource');
+      const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+      return !bodies.some((b: any) => b.type === 'SpecificResource');
     });
 
     for (const ann of anchors) {
-      const text = ann.target?.selector?.exact ?? '';
+      const target = ann.target;
+      const selectors =
+        typeof target === 'string' || !target.selector
+          ? []
+          : Array.isArray(target.selector)
+            ? target.selector
+            : [target.selector];
+      let text = '';
+      for (const s of selectors) {
+        if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
+      }
       if (!text || seenAnchors.has(text.toLowerCase())) continue;
       seenAnchors.add(text.toLowerCase());
 
@@ -151,6 +162,7 @@ single tag value per anchor.
 
       // gather context for the anchor's annotation, then synthesize from it.
       const gather = await semiont.gather.annotation(rId, ann.id, { contextWindow: 1500 });
+      if (!('response' in gather)) continue;
       const context = gather.response as GatheredContext;
       const yieldEvent = await semiont.yield.fromAnnotation(rId, ann.id, {
         title: text,

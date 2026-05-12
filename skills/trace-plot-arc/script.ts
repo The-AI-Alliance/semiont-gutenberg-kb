@@ -67,7 +67,8 @@ async function main(): Promise<void> {
     for (const ann of annotations) {
       if (ann.motivation === 'assessing') dangerCount++;
       if (ann.motivation === 'commenting') subtextCount++;
-      const refs = (ann.body ?? [])
+      const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+      const refs = bodies
         .filter((b: any) => b.type === 'SpecificResource')
         .map((b: any) => b.source);
       boundRefs.push(...refs);
@@ -97,6 +98,12 @@ async function main(): Promise<void> {
   const climaxRow = dangerOrdered[0];
   const incitingRow = rows.find((r) => r.dangerCount > 0) ?? rows[0];
   const denouementRow = rows[rows.length - 1];
+  if (!climaxRow || !incitingRow || !denouementRow) {
+    console.error('Not enough passages to identify plot landmarks.');
+    semiont.dispose();
+    closeInteractive();
+    return;
+  }
 
   // Compose the markdown arc
   const lines: string[] = [

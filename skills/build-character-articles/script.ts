@@ -49,15 +49,27 @@ async function main(): Promise<void> {
     const annotations = await semiont.browse.annotations(rId);
     for (const ann of annotations) {
       if (ann.motivation !== 'linking') continue;
-      const ets = (ann.body ?? [])
+      const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+      const ets = bodies
         .filter((b: any) => b.type === 'TextualBody' && b.purpose === 'tagging')
         .flatMap((b: any) => Array.isArray(b.value) ? b.value : [b.value]);
       const matchedChars = ets.filter((t: string) => CHARACTER_TYPES.has(t));
       if (matchedChars.length === 0) continue;
+      const target = ann.target;
+      const selectors =
+        typeof target === 'string' || !target.selector
+          ? []
+          : Array.isArray(target.selector)
+            ? target.selector
+            : [target.selector];
+      let text = '';
+      for (const s of selectors) {
+        if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
+      }
       characterAnnotations.push({
         rId,
         annId: ann.id,
-        text: ann.target?.selector?.exact ?? '',
+        text,
         entityTypes: matchedChars,
       });
     }
@@ -98,8 +110,10 @@ async function main(): Promise<void> {
 
   for (const [_, anns] of clusters) {
     const sample = anns[0];
+    if (!sample) continue;
 
     const gather = await semiont.gather.annotation(sample.rId, sample.annId, { contextWindow: 1500 });
+    if (!('response' in gather)) continue;
     const context = gather.response as GatheredContext;
 
     const matchResult = await semiont.match.search(sample.rId, sample.annId, context, {
