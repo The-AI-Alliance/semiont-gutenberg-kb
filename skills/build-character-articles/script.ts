@@ -6,17 +6,10 @@
  * skill 1), synthesize new ones with yield.fromAnnotation otherwise, bind
  * annotations. The model writes the article body grounded in the gathered
  * context of a sample passage; the Wikipedia URL is woven into an External
- * references section via the prompt.
- *
- * KNOWN ISSUE — entity-type loss on synthesized resources:
- *   yield.fromAnnotation's GenerationOptions does not accept entityTypes
- *   (see @semiont/sdk's namespaces/types.ts:GenerationOptions and the bus
- *   payload in yield.ts:188-198). That means synthesized Character resources
- *   here do NOT get a 'Character' entity-type stamp — `browse.resources({
- *   entityType: 'Character' })` will miss them. The bound annotations still
- *   carry the Character tag in their tagging-body values, so annotation-side
- *   queries work. Upstream fix: add entityTypes to GenerationOptions in the
- *   SDK + bus protocol + backend handler. Tracked for a later pass.
+ * references section via the prompt. Synthesized resources are stamped with
+ * the 'Character' entity type plus any sub-types the source annotations
+ * already carried, so `browse.resources({ entityType: 'Character' })` finds
+ * them.
  *
  * Usage: tsx skills/build-character-articles/script.ts [--interactive]
  */
@@ -106,7 +99,7 @@ async function main(): Promise<void> {
   for (const [_, anns] of clusters) {
     const sample = anns[0];
 
-    const gather = await semiont.gather.annotation(sample.annId, sample.rId, { contextWindow: 1500 });
+    const gather = await semiont.gather.annotation(sample.rId, sample.annId, { contextWindow: 1500 });
     const context = gather.response as GatheredContext;
 
     const matchResult = await semiont.match.search(sample.rId, sample.annId, context, {
@@ -136,13 +129,16 @@ async function main(): Promise<void> {
         `\n${externalRefsLine}\n` +
         `Write in a neutral, encyclopedic tone — model on a curated wiki article.`;
 
-      // entityTypes intentionally NOT passed — yield.fromAnnotation's
-      // GenerationOptions doesn't accept it (see file header).
       const yieldEvent = await semiont.yield.fromAnnotation(sample.rId, sample.annId, {
         title: sample.text,
         storageUri: `file://generated/character-${slugify(sample.text)}.md`,
         context,
         prompt,
+        // Stamp the synthesized resource with 'Character' plus any
+        // sub-types the source annotations carried (e.g. 'Hero', 'Villain'
+        // when the upstream tagging pass identified them). De-duplicated
+        // because 'Character' may already be in the cluster's source tags.
+        entityTypes: Array.from(new Set(['Character', ...sample.entityTypes])),
       });
       if (yieldEvent.kind !== 'complete') {
         console.warn(`  unexpected yield event: ${yieldEvent.kind} for "${sample.text}"`);

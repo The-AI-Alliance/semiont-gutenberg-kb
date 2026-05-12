@@ -29,6 +29,7 @@
 
 import { SemiontClient, entityType, resourceId as ridBrand, type ResourceId } from '@semiont/sdk';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
+import { createdCount } from '../../src/mark-result.js';
 
 const DEFAULT_INSTRUCTIONS =
   'Mark every passage that exemplifies a recurring thematic concern of the work. ' +
@@ -81,7 +82,7 @@ async function main(): Promise<void> {
       entityTypes: [entityType(UMBRELLA_THEME_TAG)],
       instructions: INSTRUCTIONS,
     });
-    const n = progress.progress?.createdCount ?? 0;
+    const n = createdCount(progress);
     console.log(`  ${rId}: ${n} thematic spans`);
   }
 

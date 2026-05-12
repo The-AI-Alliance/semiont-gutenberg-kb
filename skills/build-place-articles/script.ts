@@ -6,15 +6,9 @@
  * synthesize new ones with yield.fromAnnotation otherwise, bind annotations.
  * The model writes the article body grounded in the gathered context; the
  * Wikipedia URL is woven into an External references section via the prompt.
- *
- * KNOWN ISSUE — entity-type loss on synthesized resources:
- *   yield.fromAnnotation's GenerationOptions does not accept entityTypes
- *   (see @semiont/sdk's namespaces/types.ts:GenerationOptions and the bus
- *   payload in yield.ts:188-198). Synthesized Place resources here do NOT
- *   get a 'Place' entity-type stamp — `browse.resources({ entityType: 'Place' })`
- *   will miss them. The bound annotations still carry the Place tag in their
- *   tagging-body values, so annotation-side queries work. Upstream fix: add
- *   entityTypes to GenerationOptions in the SDK. Tracked for a later pass.
+ * Synthesized resources are stamped with 'Place' plus any sub-types the
+ * source annotations already carried, so `browse.resources({ entityType: 'Place' })`
+ * finds them.
  *
  * Usage: tsx skills/build-place-articles/script.ts [--interactive]
  */
@@ -101,7 +95,7 @@ async function main(): Promise<void> {
   for (const [_, anns] of clusters) {
     const sample = anns[0];
 
-    const gather = await semiont.gather.annotation(sample.annId, sample.rId, { contextWindow: 1500 });
+    const gather = await semiont.gather.annotation(sample.rId, sample.annId, { contextWindow: 1500 });
     const context = gather.response as GatheredContext;
 
     const matchResult = await semiont.match.search(sample.rId, sample.annId, context, {
@@ -130,12 +124,14 @@ async function main(): Promise<void> {
         `\n${externalRefsLine}\n` +
         `Write in a neutral, encyclopedic tone — model on a curated wiki article.`;
 
-      // entityTypes intentionally NOT passed — see file header.
       const yieldEvent = await semiont.yield.fromAnnotation(sample.rId, sample.annId, {
         title: sample.text,
         storageUri: `file://generated/place-${slugify(sample.text)}.md`,
         context,
         prompt,
+        // Stamp the synthesized resource with 'Place' plus any sub-types
+        // the source annotations carried. De-duplicated.
+        entityTypes: Array.from(new Set(['Place', ...sample.entityTypes])),
       });
       if (yieldEvent.kind !== 'complete') {
         console.warn(`  unexpected yield event: ${yieldEvent.kind} for "${sample.text}"`);

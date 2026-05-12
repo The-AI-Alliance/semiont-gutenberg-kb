@@ -10,6 +10,7 @@
 
 import { SemiontClient, entityType, resourceId as ridBrand, type ResourceId } from '@semiont/sdk';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
+import { createdCount } from '../../src/mark-result.js';
 
 const ENTITY_TYPES = (
   process.env.ENTITY_TYPES ?? 'Character,God,Mortal,Titan,Hero'
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
       entityTypes: ENTITY_TYPES,
       includeDescriptiveReferences: true,
     });
-    const n = progress.progress?.createdCount ?? 0;
+    const n = createdCount(progress);
     totalCreated += n;
     console.log(`  ${rId}: ${n} new annotations`);
   }

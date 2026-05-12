@@ -10,6 +10,7 @@
 
 import { SemiontClient, resourceId as ridBrand, type ResourceId } from '@semiont/sdk';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
+import { createdCount } from '../../src/mark-result.js';
 
 const DEFAULT_INSTRUCTIONS =
   'Identify and tag situations of physical danger, moral peril, threats of violence, ' +
@@ -57,7 +58,7 @@ async function main(): Promise<void> {
   let totalCreated = 0;
   for (const rId of targets) {
     const progress = await semiont.mark.assist(rId, 'assessing', { instructions: INSTRUCTIONS });
-    const n = progress.progress?.createdCount ?? 0;
+    const n = createdCount(progress);
     totalCreated += n;
     console.log(`  ${rId}: ${n} dangerous-situation flags`);
   }

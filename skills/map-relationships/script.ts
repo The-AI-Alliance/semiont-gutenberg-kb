@@ -12,8 +12,23 @@
  * Usage: tsx skills/map-relationships/script.ts [<resourceId>] [--interactive]
  */
 
-import { SemiontClient, resourceId as ridBrand, type ResourceId } from '@semiont/sdk';
+import { SemiontClient, entityType, resourceId as ridBrand, type ResourceId } from '@semiont/sdk';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
+import { createdCount } from '../../src/mark-result.js';
+
+// mark.assist with motivation 'linking' requires a non-empty entityTypes
+// array (SDK validation). Relationship passes scope to Character (and
+// Place for char-place edges). Override via RELATIONSHIP_ENTITY_TYPES.
+const CHAR_CHAR_ENTITY_TYPES = (
+  process.env.RELATIONSHIP_ENTITY_TYPES ?? 'Character'
+)
+  .split(',')
+  .map((t) => entityType(t.trim()));
+const CHAR_PLACE_ENTITY_TYPES = (
+  process.env.RELATIONSHIP_ENTITY_TYPES ?? 'Character,Place'
+)
+  .split(',')
+  .map((t) => entityType(t.trim()));
 
 const CHAR_CHAR_INSTRUCTIONS = `
 For pairs of named characters in this passage, identify any explicit relationship:
@@ -81,17 +96,19 @@ async function main(): Promise<void> {
   for (const rId of targets) {
     if (RUN_CHAR_CHAR) {
       const progress = await semiont.mark.assist(rId, 'linking', {
+        entityTypes: CHAR_CHAR_ENTITY_TYPES,
         instructions: CHAR_CHAR_INSTRUCTIONS,
       });
-      const n = progress.progress?.createdCount ?? 0;
+      const n = createdCount(progress);
       totalCC += n;
       console.log(`  ${rId} (char-char): ${n} relationship annotations`);
     }
     if (RUN_CHAR_PLACE) {
       const progress = await semiont.mark.assist(rId, 'linking', {
+        entityTypes: CHAR_PLACE_ENTITY_TYPES,
         instructions: CHAR_PLACE_INSTRUCTIONS,
       });
-      const n = progress.progress?.createdCount ?? 0;
+      const n = createdCount(progress);
       totalCP += n;
       console.log(`  ${rId} (char-place): ${n} association annotations`);
     }

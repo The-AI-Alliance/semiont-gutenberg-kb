@@ -7,29 +7,33 @@
  * author, prior tradition, audience and venue, real events, philosophical /
  * religious concepts), and yield.fromAnnotation synthesizes a HistoricalContext
  * resource per anchor — model writes the body grounded in the gathered
- * context, with the Wikipedia URL woven in via the prompt.
- *
- * KNOWN ISSUE — entity-type loss on synthesized resources:
- *   yield.fromAnnotation's GenerationOptions does not accept entityTypes
- *   (see @semiont/sdk's namespaces/types.ts:GenerationOptions and the bus
- *   payload in yield.ts:188-198). Synthesized HistoricalContext resources
- *   here do NOT get the 'HistoricalContext' / 'Historical' / 'Wikipedia'
- *   entity-type stamps — `browse.resources({ entityType: 'HistoricalContext' })`
- *   will miss them. The bound annotations still carry the historical-event
- *   tags. Upstream fix: add entityTypes to GenerationOptions in the SDK.
- *   Tracked for a later pass.
+ * context, with the Wikipedia URL woven in via the prompt. Synthesized
+ * resources are stamped with 'HistoricalContext', 'Historical', and
+ * 'Wikipedia' entity types so `browse.resources({ entityType: 'HistoricalContext' })`
+ * finds them.
  *
  * Usage: tsx skills/build-historical-context/script.ts [<workResourceId>] [--interactive]
  */
 
 import {
   SemiontClient,
+  entityType,
   resourceId as ridBrand,
   type GatheredContext,
   type ResourceId,
 } from '@semiont/sdk';
 import { wikipediaSearch } from '../../src/wikipedia.js';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
+import { createdCount } from '../../src/mark-result.js';
+
+// mark.assist with motivation 'linking' requires a non-empty entityTypes
+// array (SDK validation). The historical-anchor pass tags spans that point
+// at real-world historical contexts.
+const ANCHOR_ENTITY_TYPES = (
+  process.env.ANCHOR_ENTITY_TYPES ?? 'HistoricalContext'
+)
+  .split(',')
+  .map((t) => entityType(t.trim()));
 
 function slugify(text: string): string {
   return text.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -111,8 +115,11 @@ single tag value per anchor.
 
   for (const rId of targets) {
     console.log(`\nProcessing ${rId}...`);
-    const progress = await semiont.mark.assist(rId, 'linking', { instructions: ANCHOR_INSTRUCTIONS });
-    console.log(`  Created ${progress.progress?.createdCount ?? 0} anchor annotations.`);
+    const progress = await semiont.mark.assist(rId, 'linking', {
+      entityTypes: ANCHOR_ENTITY_TYPES,
+      instructions: ANCHOR_INSTRUCTIONS,
+    });
+    console.log(`  Created ${createdCount(progress)} anchor annotations.`);
 
     const annotations = await semiont.browse.annotations(rId);
     const anchors = annotations.filter((ann) => {
@@ -143,14 +150,14 @@ single tag value per anchor.
         `Write in a neutral, encyclopedic tone — model on a curated wiki article. Keep it to ~3 paragraphs.`;
 
       // gather context for the anchor's annotation, then synthesize from it.
-      const gather = await semiont.gather.annotation(ann.id, rId, { contextWindow: 1500 });
+      const gather = await semiont.gather.annotation(rId, ann.id, { contextWindow: 1500 });
       const context = gather.response as GatheredContext;
-      // entityTypes intentionally NOT passed — see file header.
       const yieldEvent = await semiont.yield.fromAnnotation(rId, ann.id, {
         title: text,
         storageUri: `file://generated/historical-${slugify(text)}.md`,
         context,
         prompt,
+        entityTypes: ['HistoricalContext', 'Historical', 'Wikipedia'],
       });
       if (yieldEvent.kind !== 'complete') {
         console.warn(`  unexpected yield event: ${yieldEvent.kind} for "${text}"`);
