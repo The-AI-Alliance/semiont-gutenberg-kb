@@ -16,10 +16,12 @@
  */
 
 import {
-  SemiontClient,
+  SemiontSession,
+  InMemorySessionStorage,
   entityType,
   resourceId as ridBrand,
   type GatheredContext,
+  type KnowledgeBase,
   type ResourceId,
 } from '@semiont/sdk';
 import { wikipediaSearch } from '../../src/wikipedia.js';
@@ -43,11 +45,18 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2).filter((a) => !a.startsWith('-'));
   const explicitResourceId = args[0];
 
-  const semiont = await SemiontClient.signInHttp({
-    baseUrl: process.env.SEMIONT_API_URL ?? 'http://localhost:4000',
-    email: process.env.SEMIONT_USER_EMAIL!,
-    password: process.env.SEMIONT_USER_PASSWORD!,
-  });
+  const baseUrl = process.env.SEMIONT_API_URL ?? 'http://localhost:4000';
+  const email = process.env.SEMIONT_USER_EMAIL!;
+  const password = process.env.SEMIONT_USER_PASSWORD!;
+  const u = new URL(baseUrl);
+  const kb: KnowledgeBase = {
+    id: 'gutenberg-build-historical-context',
+    label: 'gutenberg build-historical-context',
+    email,
+    endpoint: { kind: 'http', host: u.hostname, port: Number(u.port) || 4000, protocol: u.protocol.replace(':', '') as 'http' | 'https' },
+  };
+  const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
+  const semiont = session.client;
 
   // Identify "work" by grouping LiteraryPassage resources whose names share
   // a common parent path. For v1, treat each LiteraryPassage as its own
@@ -78,7 +87,7 @@ async function main(): Promise<void> {
 
   if (targets.length === 0) {
     console.log('No LiteraryPassage resources found.');
-    semiont.dispose();
+    await session.dispose();
     closeInteractive();
     return;
   }
@@ -92,7 +101,7 @@ async function main(): Promise<void> {
   const proceed = await confirm('Proceed?', true);
   if (!proceed) {
     console.log('Aborted.');
-    semiont.dispose();
+    await session.dispose();
     closeInteractive();
     return;
   }
@@ -186,7 +195,7 @@ single tag value per anchor.
   }
 
   console.log(`\nDone. Synthesized ${synthesized} HistoricalContext resources.`);
-  semiont.dispose();
+  await session.dispose();
   closeInteractive();
 }
 

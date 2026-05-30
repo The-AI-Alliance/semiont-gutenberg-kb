@@ -14,7 +14,7 @@
  * Usage: tsx skills/trace-plot-arc/script.ts [<workNamePattern>] [--interactive]
  */
 
-import { SemiontClient, resourceId as ridBrand, type ResourceId } from '@semiont/sdk';
+import { SemiontSession, InMemorySessionStorage, resourceId as ridBrand, type KnowledgeBase, type ResourceId } from '@semiont/sdk';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
 
 const PLOT_FRAMEWORK = process.env.PLOT_FRAMEWORK ?? 'auto';
@@ -36,11 +36,18 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2).filter((a) => !a.startsWith('-'));
   const workPattern = args[0]?.toLowerCase();
 
-  const semiont = await SemiontClient.signInHttp({
-    baseUrl: process.env.SEMIONT_API_URL ?? 'http://localhost:4000',
-    email: process.env.SEMIONT_USER_EMAIL!,
-    password: process.env.SEMIONT_USER_PASSWORD!,
-  });
+  const baseUrl = process.env.SEMIONT_API_URL ?? 'http://localhost:4000';
+  const email = process.env.SEMIONT_USER_EMAIL!;
+  const password = process.env.SEMIONT_USER_PASSWORD!;
+  const u = new URL(baseUrl);
+  const kb: KnowledgeBase = {
+    id: 'gutenberg-trace-plot-arc',
+    label: 'gutenberg trace-plot-arc',
+    email,
+    endpoint: { kind: 'http', host: u.hostname, port: Number(u.port) || 4000, protocol: u.protocol.replace(':', '') as 'http' | 'https' },
+  };
+  const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
+  const semiont = session.client;
 
   const all = await semiont.browse.resources({ limit: 1000 });
   let passages = all.filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'));
@@ -52,7 +59,7 @@ async function main(): Promise<void> {
 
   if (passages.length === 0) {
     console.log('No LiteraryPassage resources found.');
-    semiont.dispose();
+    await session.dispose();
     closeInteractive();
     return;
   }
@@ -86,7 +93,7 @@ async function main(): Promise<void> {
   const proceed = await confirm('Proceed?', true);
   if (!proceed) {
     console.log('Aborted.');
-    semiont.dispose();
+    await session.dispose();
     closeInteractive();
     return;
   }
@@ -100,7 +107,7 @@ async function main(): Promise<void> {
   const denouementRow = rows[rows.length - 1];
   if (!climaxRow || !incitingRow || !denouementRow) {
     console.error('Not enough passages to identify plot landmarks.');
-    semiont.dispose();
+    await session.dispose();
     closeInteractive();
     return;
   }
@@ -162,7 +169,7 @@ async function main(): Promise<void> {
   });
 
   console.log(`\nPlotArc resource created: ${resourceId} (${body.length} bytes)`);
-  semiont.dispose();
+  await session.dispose();
   closeInteractive();
 }
 
