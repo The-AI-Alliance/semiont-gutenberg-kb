@@ -48,151 +48,152 @@ async function main(): Promise<void> {
   const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
   const semiont = session.client;
 
-  const all = await semiont.browse.resources({ limit: 1000 });
-  const passages = all.filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'));
+  try {
+    const all = await semiont.browse.resources({ limit: 1000 });
+    const passages = all.filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'));
 
-  type AnnoRef = { rId: ResourceId; annId: AnnotationId; text: string; entityTypes: string[] };
-  const characterAnnotations: AnnoRef[] = [];
-  for (const r of passages) {
-    const rId = ridBrand(r['@id']);
-    const annotations = await semiont.browse.annotations(rId);
-    for (const ann of annotations) {
-      if (ann.motivation !== 'linking') continue;
-      const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
-      const ets = bodies
-        .filter((b: any) => b.type === 'TextualBody' && b.purpose === 'tagging')
-        .flatMap((b: any) => Array.isArray(b.value) ? b.value : [b.value]);
-      const matchedChars = ets.filter((t: string) => CHARACTER_TYPES.has(t));
-      if (matchedChars.length === 0) continue;
-      const target = ann.target;
-      const selectors =
-        typeof target === 'string' || !target.selector
-          ? []
-          : Array.isArray(target.selector)
-            ? target.selector
-            : [target.selector];
-      let text = '';
-      for (const s of selectors) {
-        if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
+    type AnnoRef = { rId: ResourceId; annId: AnnotationId; text: string; entityTypes: string[] };
+    const characterAnnotations: AnnoRef[] = [];
+    for (const r of passages) {
+      const rId = ridBrand(r['@id']);
+      const annotations = await semiont.browse.annotations(rId);
+      for (const ann of annotations) {
+        if (ann.motivation !== 'linking') continue;
+        const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+        const ets = bodies
+          .filter((b: any) => b.type === 'TextualBody' && b.purpose === 'tagging')
+          .flatMap((b: any) => Array.isArray(b.value) ? b.value : [b.value]);
+        const matchedChars = ets.filter((t: string) => CHARACTER_TYPES.has(t));
+        if (matchedChars.length === 0) continue;
+        const target = ann.target;
+        const selectors =
+          typeof target === 'string' || !target.selector
+            ? []
+            : Array.isArray(target.selector)
+              ? target.selector
+              : [target.selector];
+        let text = '';
+        for (const s of selectors) {
+          if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
+        }
+        characterAnnotations.push({
+          rId,
+          annId: ann.id,
+          text,
+          entityTypes: matchedChars,
+        });
       }
-      characterAnnotations.push({
-        rId,
-        annId: ann.id,
-        text,
-        entityTypes: matchedChars,
+    }
+
+    if (characterAnnotations.length === 0) {
+      console.log('No character annotations found. Run skills/mark-characters/script.ts first.');
+      closeInteractive();
+      return;
+    }
+
+    const clusters = new Map<string, AnnoRef[]>();
+    for (const a of characterAnnotations) {
+      const key = a.text.toLowerCase().trim();
+      if (!clusters.has(key)) clusters.set(key, []);
+      clusters.get(key)!.push(a);
+    }
+
+    console.log(
+      `Found ${characterAnnotations.length} character annotations, ` +
+        `clustered into ${clusters.size} distinct characters.`,
+    );
+
+    const proceed = await confirm(
+      'Proceed to match each cluster against existing Character resources, synthesize new ones with Wikipedia citations where needed, and bind annotations?',
+      true,
+    );
+    if (!proceed) {
+      console.log('Aborted.');
+      closeInteractive();
+      return;
+    }
+
+    let bound = 0;
+    let synthesized = 0;
+
+    for (const [_, anns] of clusters) {
+      const sample = anns[0];
+      if (!sample) continue;
+
+      const gather = await semiont.gather.annotation(sample.rId, sample.annId, { contextWindow: 1500 });
+      if (!('response' in gather)) continue;
+      const context = gather.response as GatheredContext;
+
+      const matchResult = await semiont.match.search(sample.rId, sample.annId, context, {
+        limit: 5,
+        useSemanticScoring: true,
       });
-    }
-  }
+      const top = matchResult.response[0];
 
-  if (characterAnnotations.length === 0) {
-    console.log('No character annotations found. Run skills/mark-characters/script.ts first.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
+      let targetResourceId: string;
+      if (top && (top.score ?? 0) >= MATCH_THRESHOLD) {
+        targetResourceId = top['@id'];
+        console.log(`  ↪ "${sample.text}" → ${top.name} (existing, score ${top.score})`);
+      } else {
+        const wikiUrl = await wikipediaSearch(sample.text);
+        const externalRefsLine = wikiUrl
+          ? `End with an "## External references" section as a markdown bullet list including: - [${sample.text}](${wikiUrl}) — Wikipedia`
+          : 'No Wikipedia URL was found; do not include an External references section.';
+        const prompt =
+          `Write a wiki-style article about the character "${sample.text}" referenced in this literary corpus. ` +
+          `The character is tagged with type(s): ${sample.entityTypes.join(', ')}, and is mentioned in ${anns.length} ` +
+          `passage(s) across the corpus. Use the gathered context from the source passage to ground the article. ` +
+          `\n\nStructure:\n` +
+          `  - Opening definition paragraph (who they are, in one or two sentences).\n` +
+          `  - Role in the work (mythological / historical / literary context where applicable).\n` +
+          `  - Key actions or attributes evident from the source passages.\n` +
+          `  - Relationships hinted at in the source.\n` +
+          `\n${externalRefsLine}\n` +
+          `Write in a neutral, encyclopedic tone — model on a curated wiki article.`;
 
-  const clusters = new Map<string, AnnoRef[]>();
-  for (const a of characterAnnotations) {
-    const key = a.text.toLowerCase().trim();
-    if (!clusters.has(key)) clusters.set(key, []);
-    clusters.get(key)!.push(a);
-  }
-
-  console.log(
-    `Found ${characterAnnotations.length} character annotations, ` +
-      `clustered into ${clusters.size} distinct characters.`,
-  );
-
-  const proceed = await confirm(
-    'Proceed to match each cluster against existing Character resources, synthesize new ones with Wikipedia citations where needed, and bind annotations?',
-    true,
-  );
-  if (!proceed) {
-    console.log('Aborted.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
-
-  let bound = 0;
-  let synthesized = 0;
-
-  for (const [_, anns] of clusters) {
-    const sample = anns[0];
-    if (!sample) continue;
-
-    const gather = await semiont.gather.annotation(sample.rId, sample.annId, { contextWindow: 1500 });
-    if (!('response' in gather)) continue;
-    const context = gather.response as GatheredContext;
-
-    const matchResult = await semiont.match.search(sample.rId, sample.annId, context, {
-      limit: 5,
-      useSemanticScoring: true,
-    });
-    const top = matchResult.response[0];
-
-    let targetResourceId: string;
-    if (top && (top.score ?? 0) >= MATCH_THRESHOLD) {
-      targetResourceId = top['@id'];
-      console.log(`  ↪ "${sample.text}" → ${top.name} (existing, score ${top.score})`);
-    } else {
-      const wikiUrl = await wikipediaSearch(sample.text);
-      const externalRefsLine = wikiUrl
-        ? `End with an "## External references" section as a markdown bullet list including: - [${sample.text}](${wikiUrl}) — Wikipedia`
-        : 'No Wikipedia URL was found; do not include an External references section.';
-      const prompt =
-        `Write a wiki-style article about the character "${sample.text}" referenced in this literary corpus. ` +
-        `The character is tagged with type(s): ${sample.entityTypes.join(', ')}, and is mentioned in ${anns.length} ` +
-        `passage(s) across the corpus. Use the gathered context from the source passage to ground the article. ` +
-        `\n\nStructure:\n` +
-        `  - Opening definition paragraph (who they are, in one or two sentences).\n` +
-        `  - Role in the work (mythological / historical / literary context where applicable).\n` +
-        `  - Key actions or attributes evident from the source passages.\n` +
-        `  - Relationships hinted at in the source.\n` +
-        `\n${externalRefsLine}\n` +
-        `Write in a neutral, encyclopedic tone — model on a curated wiki article.`;
-
-      const yieldEvent = await semiont.yield.fromAnnotation(sample.rId, sample.annId, {
-        title: sample.text,
-        storageUri: `file://generated/character-${slugify(sample.text)}.md`,
-        context,
-        prompt,
-        // Stamp the synthesized resource with 'Character' plus any
-        // sub-types the source annotations carried (e.g. 'Hero', 'Villain'
-        // when the upstream tagging pass identified them). De-duplicated
-        // because 'Character' may already be in the cluster's source tags.
-        entityTypes: Array.from(new Set(['Character', ...sample.entityTypes])),
-      });
-      if (yieldEvent.kind !== 'complete') {
-        console.warn(`  unexpected yield event: ${yieldEvent.kind} for "${sample.text}"`);
-        continue;
+        const yieldEvent = await semiont.yield.fromAnnotation(sample.rId, sample.annId, {
+          title: sample.text,
+          storageUri: `file://generated/character-${slugify(sample.text)}.md`,
+          context,
+          prompt,
+          // Stamp the synthesized resource with 'Character' plus any
+          // sub-types the source annotations carried (e.g. 'Hero', 'Villain'
+          // when the upstream tagging pass identified them). De-duplicated
+          // because 'Character' may already be in the cluster's source tags.
+          entityTypes: Array.from(new Set(['Character', ...sample.entityTypes])),
+        });
+        if (yieldEvent.kind !== 'complete') {
+          console.warn(`  unexpected yield event: ${yieldEvent.kind} for "${sample.text}"`);
+          continue;
+        }
+        const newRId = (yieldEvent.data.result as { resourceId?: string } | undefined)?.resourceId;
+        if (!newRId) {
+          console.warn(`  yield.fromAnnotation gave no resourceId for "${sample.text}"`);
+          continue;
+        }
+        targetResourceId = newRId;
+        synthesized++;
+        console.log(`  + "${sample.text}" → ${newRId} (synthesized${wikiUrl ? `, Wikipedia: ${wikiUrl}` : ''})`);
       }
-      const newRId = (yieldEvent.data.result as { resourceId?: string } | undefined)?.resourceId;
-      if (!newRId) {
-        console.warn(`  yield.fromAnnotation gave no resourceId for "${sample.text}"`);
-        continue;
+
+      for (const a of anns) {
+        await semiont.bind.body(a.rId, a.annId, [
+          {
+            op: 'add',
+            item: { type: 'SpecificResource', source: targetResourceId, purpose: 'linking' },
+          },
+        ]);
+        bound++;
       }
-      targetResourceId = newRId;
-      synthesized++;
-      console.log(`  + "${sample.text}" → ${newRId} (synthesized${wikiUrl ? `, Wikipedia: ${wikiUrl}` : ''})`);
     }
 
-    for (const a of anns) {
-      await semiont.bind.body(a.rId, a.annId, [
-        {
-          op: 'add',
-          item: { type: 'SpecificResource', source: targetResourceId, purpose: 'linking' },
-        },
-      ]);
-      bound++;
-    }
+    console.log(
+      `\nDone. Bound ${bound} annotations across ${clusters.size} character clusters; ${synthesized} new Character resources synthesized.`,
+    );
+    closeInteractive();
+  } finally {
+    await session.dispose();
   }
-
-  console.log(
-    `\nDone. Bound ${bound} annotations across ${clusters.size} character clusters; ${synthesized} new Character resources synthesized.`,
-  );
-  await session.dispose();
-  closeInteractive();
 }
 
 main().catch((e) => {

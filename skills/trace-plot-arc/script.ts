@@ -49,128 +49,128 @@ async function main(): Promise<void> {
   const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
   const semiont = session.client;
 
-  const all = await semiont.browse.resources({ limit: 1000 });
-  let passages = all.filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'));
+  try {
+    const all = await semiont.browse.resources({ limit: 1000 });
+    let passages = all.filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'));
 
-  if (workPattern) {
-    passages = passages.filter((r) => (r.name ?? '').toLowerCase().includes(workPattern));
-    console.log(`Filtered to ${passages.length} passages matching "${workPattern}".`);
-  }
-
-  if (passages.length === 0) {
-    console.log('No LiteraryPassage resources found.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
-
-  const rows: PassageRow[] = [];
-  for (const r of passages) {
-    const rId = ridBrand(r['@id']);
-    const annotations = await semiont.browse.annotations(rId);
-    let dangerCount = 0;
-    let subtextCount = 0;
-    const boundRefs: string[] = [];
-    for (const ann of annotations) {
-      if (ann.motivation === 'assessing') dangerCount++;
-      if (ann.motivation === 'commenting') subtextCount++;
-      const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
-      const refs = bodies
-        .filter((b: any) => b.type === 'SpecificResource')
-        .map((b: any) => b.source);
-      boundRefs.push(...refs);
+    if (workPattern) {
+      passages = passages.filter((r) => (r.name ?? '').toLowerCase().includes(workPattern));
+      console.log(`Filtered to ${passages.length} passages matching "${workPattern}".`);
     }
-    rows.push({ rId, name: r.name ?? r['@id'], dangerCount, subtextCount, boundRefs });
-  }
 
-  // Order by name (assumes section files are named in narrative order, e.g.
-  // Argument, Dramatis Personae, Prologos, Parodos, Episode 1, ..., Exodos).
-  rows.sort((a, b) => a.name.localeCompare(b.name));
+    if (passages.length === 0) {
+      console.log('No LiteraryPassage resources found.');
+      closeInteractive();
+      return;
+    }
 
-  console.log(`\nWill compose a PlotArc resource for ${rows.length} passage(s).`);
-  console.log(`Framework: ${PLOT_FRAMEWORK}`);
+    const rows: PassageRow[] = [];
+    for (const r of passages) {
+      const rId = ridBrand(r['@id']);
+      const annotations = await semiont.browse.annotations(rId);
+      let dangerCount = 0;
+      let subtextCount = 0;
+      const boundRefs: string[] = [];
+      for (const ann of annotations) {
+        if (ann.motivation === 'assessing') dangerCount++;
+        if (ann.motivation === 'commenting') subtextCount++;
+        const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+        const refs = bodies
+          .filter((b: any) => b.type === 'SpecificResource')
+          .map((b: any) => b.source);
+        boundRefs.push(...refs);
+      }
+      rows.push({ rId, name: r.name ?? r['@id'], dangerCount, subtextCount, boundRefs });
+    }
 
-  const proceed = await confirm('Proceed?', true);
-  if (!proceed) {
-    console.log('Aborted.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
+    // Order by name (assumes section files are named in narrative order, e.g.
+    // Argument, Dramatis Personae, Prologos, Parodos, Episode 1, ..., Exodos).
+    rows.sort((a, b) => a.name.localeCompare(b.name));
 
-  // Identify candidate inciting incident, climax, etc., from the danger-flag
-  // distribution. The peak-danger passage is the climax candidate; the first
-  // passage with non-zero danger is the inciting-incident candidate.
-  const dangerOrdered = [...rows].sort((a, b) => b.dangerCount - a.dangerCount);
-  const climaxRow = dangerOrdered[0];
-  const incitingRow = rows.find((r) => r.dangerCount > 0) ?? rows[0];
-  const denouementRow = rows[rows.length - 1];
-  if (!climaxRow || !incitingRow || !denouementRow) {
-    console.error('Not enough passages to identify plot landmarks.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
+    console.log(`\nWill compose a PlotArc resource for ${rows.length} passage(s).`);
+    console.log(`Framework: ${PLOT_FRAMEWORK}`);
 
-  // Compose the markdown arc
-  const lines: string[] = [
-    `# Plot Arc: ${rows[0]?.name ?? 'Work'} → ${rows[rows.length - 1]?.name ?? ''}`,
-    '',
-    `Auto-generated narrative-structure synthesis across ${rows.length} passage(s). ` +
-      `Framework: ${PLOT_FRAMEWORK === 'auto' ? 'automatic (passages ordered by name; landmarks chosen by danger-flag distribution)' : PLOT_FRAMEWORK}.`,
-    '',
-    '---',
-    '',
-    '## Passage map',
-    '',
-    '| # | Passage | Danger flags | Subtext comments | Bound refs |',
-    '|---|---|---|---|---|',
-  ];
+    const proceed = await confirm('Proceed?', true);
+    if (!proceed) {
+      console.log('Aborted.');
+      closeInteractive();
+      return;
+    }
 
-  rows.forEach((r, i) => {
+    // Identify candidate inciting incident, climax, etc., from the danger-flag
+    // distribution. The peak-danger passage is the climax candidate; the first
+    // passage with non-zero danger is the inciting-incident candidate.
+    const dangerOrdered = [...rows].sort((a, b) => b.dangerCount - a.dangerCount);
+    const climaxRow = dangerOrdered[0];
+    const incitingRow = rows.find((r) => r.dangerCount > 0) ?? rows[0];
+    const denouementRow = rows[rows.length - 1];
+    if (!climaxRow || !incitingRow || !denouementRow) {
+      console.error('Not enough passages to identify plot landmarks.');
+      closeInteractive();
+      return;
+    }
+
+    // Compose the markdown arc
+    const lines: string[] = [
+      `# Plot Arc: ${rows[0]?.name ?? 'Work'} → ${rows[rows.length - 1]?.name ?? ''}`,
+      '',
+      `Auto-generated narrative-structure synthesis across ${rows.length} passage(s). ` +
+        `Framework: ${PLOT_FRAMEWORK === 'auto' ? 'automatic (passages ordered by name; landmarks chosen by danger-flag distribution)' : PLOT_FRAMEWORK}.`,
+      '',
+      '---',
+      '',
+      '## Passage map',
+      '',
+      '| # | Passage | Danger flags | Subtext comments | Bound refs |',
+      '|---|---|---|---|---|',
+    ];
+
+    rows.forEach((r, i) => {
+      lines.push(
+        `| ${i + 1} | ${r.name} | ${r.dangerCount} | ${r.subtextCount} | ${r.boundRefs.length} |`,
+      );
+    });
+
     lines.push(
-      `| ${i + 1} | ${r.name} | ${r.dangerCount} | ${r.subtextCount} | ${r.boundRefs.length} |`,
+      '',
+      '## Narrative landmarks',
+      '',
+      `- **Inciting incident** (first danger flag): *${incitingRow.name}* — ${incitingRow.dangerCount} danger flag(s), ${incitingRow.subtextCount} subtext comment(s).`,
+      `- **Climax** (peak danger): *${climaxRow.name}* — ${climaxRow.dangerCount} danger flag(s).`,
+      `- **Denouement** (final passage): *${denouementRow.name}*.`,
+      '',
+      '## Notes on form',
+      '',
+      'This auto-trace orders passages alphabetically by name (the typical Project Gutenberg ' +
+        'section convention puts them in narrative order — Argument, Dramatis Personae, Prologos, ' +
+        'Parodos, Episode 1, etc. — but a real corpus may need explicit ordering).',
+      '',
+      'Landmark identification is heuristic, based on the distribution of danger and subtext ' +
+        'annotations. For a richer reading, hand-edit the resulting PlotArc resource — or refine ' +
+        'the source bio passages and rerun.',
+      '',
+      '---',
+      '',
+      '*This arc was synthesized by the `trace-plot-arc` skill. The danger flags come from ' +
+        '`assess-dangerous-situations` (skill 4); the subtext comments from `comment-subtext` (skill 5).*',
     );
-  });
 
-  lines.push(
-    '',
-    '## Narrative landmarks',
-    '',
-    `- **Inciting incident** (first danger flag): *${incitingRow.name}* — ${incitingRow.dangerCount} danger flag(s), ${incitingRow.subtextCount} subtext comment(s).`,
-    `- **Climax** (peak danger): *${climaxRow.name}* — ${climaxRow.dangerCount} danger flag(s).`,
-    `- **Denouement** (final passage): *${denouementRow.name}*.`,
-    '',
-    '## Notes on form',
-    '',
-    'This auto-trace orders passages alphabetically by name (the typical Project Gutenberg ' +
-      'section convention puts them in narrative order — Argument, Dramatis Personae, Prologos, ' +
-      'Parodos, Episode 1, etc. — but a real corpus may need explicit ordering).',
-    '',
-    'Landmark identification is heuristic, based on the distribution of danger and subtext ' +
-      'annotations. For a richer reading, hand-edit the resulting PlotArc resource — or refine ' +
-      'the source bio passages and rerun.',
-    '',
-    '---',
-    '',
-    '*This arc was synthesized by the `trace-plot-arc` skill. The danger flags come from ' +
-      '`assess-dangerous-situations` (skill 4); the subtext comments from `comment-subtext` (skill 5).*',
-  );
+    const body = lines.join('\n') + '\n';
+    const workTitle = workPattern || rows[0]?.name?.split(' ')[0] || 'work';
 
-  const body = lines.join('\n') + '\n';
-  const workTitle = workPattern || rows[0]?.name?.split(' ')[0] || 'work';
+    const { resourceId } = await semiont.yield.resource({
+      name: `Plot Arc: ${workTitle}`,
+      file: Buffer.from(body, 'utf-8'),
+      format: 'text/markdown',
+      entityTypes: ['PlotArc', 'Aggregate'],
+      storageUri: `file://generated/plotarc-${slugify(workTitle)}.md`,
+    });
 
-  const { resourceId } = await semiont.yield.resource({
-    name: `Plot Arc: ${workTitle}`,
-    file: Buffer.from(body, 'utf-8'),
-    format: 'text/markdown',
-    entityTypes: ['PlotArc', 'Aggregate'],
-    storageUri: `file://generated/plotarc-${slugify(workTitle)}.md`,
-  });
-
-  console.log(`\nPlotArc resource created: ${resourceId} (${body.length} bytes)`);
-  await session.dispose();
-  closeInteractive();
+    console.log(`\nPlotArc resource created: ${resourceId} (${body.length} bytes)`);
+    closeInteractive();
+  } finally {
+    await session.dispose();
+  }
 }
 
 main().catch((e) => {

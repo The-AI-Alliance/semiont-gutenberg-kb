@@ -35,52 +35,53 @@ async function main(): Promise<void> {
   const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
   const semiont = session.client;
 
-  let targets: ResourceId[];
-  if (explicitResourceId) {
-    targets = [ridBrand(explicitResourceId)];
-  } else {
-    const all = await semiont.browse.resources({ limit: 1000 });
-    targets = all
-      .filter((r) =>
-        (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'),
-      )
-      .map((r) => ridBrand(r['@id']));
-  }
+  try {
+    let targets: ResourceId[];
+    if (explicitResourceId) {
+      targets = [ridBrand(explicitResourceId)];
+    } else {
+      const all = await semiont.browse.resources({ limit: 1000 });
+      targets = all
+        .filter((r) =>
+          (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'),
+        )
+        .map((r) => ridBrand(r['@id']));
+    }
 
-  if (targets.length === 0) {
-    console.log('No LiteraryPassage resources found. Run skills/ingest-corpus/script.ts first.');
-    await session.dispose();
+    if (targets.length === 0) {
+      console.log('No LiteraryPassage resources found. Run skills/ingest-corpus/script.ts first.');
+      closeInteractive();
+      return;
+    }
+
+    console.log(
+      `Will run mark.assist (motivation: linking, descriptive references on, ` +
+        `${ENTITY_TYPES.length} character types) against ${targets.length} passage(s).`,
+    );
+
+    const proceed = await confirm('Proceed?', true);
+    if (!proceed) {
+      console.log('Aborted.');
+      closeInteractive();
+      return;
+    }
+
+    let totalCreated = 0;
+    for (const rId of targets) {
+      const progress = await semiont.mark.assist(rId, 'linking', {
+        entityTypes: ENTITY_TYPES,
+        includeDescriptiveReferences: true,
+      });
+      const n = createdCount(progress);
+      totalCreated += n;
+      console.log(`  ${rId}: ${n} new annotations`);
+    }
+
+    console.log(`\nDone. Created ${totalCreated} character-reference annotations.`);
     closeInteractive();
-    return;
-  }
-
-  console.log(
-    `Will run mark.assist (motivation: linking, descriptive references on, ` +
-      `${ENTITY_TYPES.length} character types) against ${targets.length} passage(s).`,
-  );
-
-  const proceed = await confirm('Proceed?', true);
-  if (!proceed) {
-    console.log('Aborted.');
+  } finally {
     await session.dispose();
-    closeInteractive();
-    return;
   }
-
-  let totalCreated = 0;
-  for (const rId of targets) {
-    const progress = await semiont.mark.assist(rId, 'linking', {
-      entityTypes: ENTITY_TYPES,
-      includeDescriptiveReferences: true,
-    });
-    const n = createdCount(progress);
-    totalCreated += n;
-    console.log(`  ${rId}: ${n} new annotations`);
-  }
-
-  console.log(`\nDone. Created ${totalCreated} character-reference annotations.`);
-  await session.dispose();
-  closeInteractive();
 }
 
 main().catch((e) => {

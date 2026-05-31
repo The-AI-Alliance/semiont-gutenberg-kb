@@ -59,125 +59,126 @@ async function main(): Promise<void> {
   const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
   const semiont = session.client;
 
-  const all = await semiont.browse.resources({ limit: 1000 });
-  const passages = all.filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'));
+  try {
+    const all = await semiont.browse.resources({ limit: 1000 });
+    const passages = all.filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'));
 
-  if (passages.length === 0) {
-    console.log('No LiteraryPassage resources found.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
+    if (passages.length === 0) {
+      console.log('No LiteraryPassage resources found.');
+      closeInteractive();
+      return;
+    }
 
-  console.log(
-    `Will run mark.assist (motivation: linking, entityTypes: ['${UMBRELLA_THEME_TAG}']) ` +
-      `against ${passages.length} passage(s) for theme discovery.`,
-  );
-  const proceed = await confirm('Proceed?', true);
-  if (!proceed) {
-    console.log('Aborted.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
+    console.log(
+      `Will run mark.assist (motivation: linking, entityTypes: ['${UMBRELLA_THEME_TAG}']) ` +
+        `against ${passages.length} passage(s) for theme discovery.`,
+    );
+    const proceed = await confirm('Proceed?', true);
+    if (!proceed) {
+      console.log('Aborted.');
+      closeInteractive();
+      return;
+    }
 
-  // Pass 1: discovery — mark thematic spans as Theme-typed linking annotations,
-  // with discovered theme labels as tagging-purpose body values.
-  for (const r of passages) {
-    const rId = ridBrand(r['@id']);
-    const progress = await semiont.mark.assist(rId, 'linking', {
-      entityTypes: [entityType(UMBRELLA_THEME_TAG)],
-      instructions: INSTRUCTIONS,
-    });
-    const n = createdCount(progress);
-    console.log(`  ${rId}: ${n} thematic spans`);
-  }
+    // Pass 1: discovery — mark thematic spans as Theme-typed linking annotations,
+    // with discovered theme labels as tagging-purpose body values.
+    for (const r of passages) {
+      const rId = ridBrand(r['@id']);
+      const progress = await semiont.mark.assist(rId, 'linking', {
+        entityTypes: [entityType(UMBRELLA_THEME_TAG)],
+        instructions: INSTRUCTIONS,
+      });
+      const n = createdCount(progress);
+      console.log(`  ${rId}: ${n} thematic spans`);
+    }
 
-  // Pass 2: aggregate by discovered theme label.
-  console.log('\nAggregating by discovered theme label...');
-  const themesByLabel = new Map<string, Array<{ rId: ResourceId; rName: string; text: string }>>();
+    // Pass 2: aggregate by discovered theme label.
+    console.log('\nAggregating by discovered theme label...');
+    const themesByLabel = new Map<string, Array<{ rId: ResourceId; rName: string; text: string }>>();
 
-  for (const r of passages) {
-    const rId = ridBrand(r['@id']);
-    const annotations = await semiont.browse.annotations(rId);
-    for (const ann of annotations) {
-      if (ann.motivation !== 'linking') continue;
-      const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
-      const tagValues = bodies
-        .filter((b: any) => b.type === 'TextualBody' && b.purpose === 'tagging')
-        .flatMap((b: any) => (Array.isArray(b.value) ? b.value : [b.value]))
-        // Keep only the discovered theme labels — drop the umbrella 'Theme' entity-type tag.
-        .filter((v: string) => v && v !== UMBRELLA_THEME_TAG);
+    for (const r of passages) {
+      const rId = ridBrand(r['@id']);
+      const annotations = await semiont.browse.annotations(rId);
+      for (const ann of annotations) {
+        if (ann.motivation !== 'linking') continue;
+        const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+        const tagValues = bodies
+          .filter((b: any) => b.type === 'TextualBody' && b.purpose === 'tagging')
+          .flatMap((b: any) => (Array.isArray(b.value) ? b.value : [b.value]))
+          // Keep only the discovered theme labels — drop the umbrella 'Theme' entity-type tag.
+          .filter((v: string) => v && v !== UMBRELLA_THEME_TAG);
 
-      // Only annotations that *also* carry the umbrella 'Theme' tag are theme spans
-      // (this filters out other linking annotations the corpus may have).
-      const carriesUmbrella = bodies.some(
-        (b: any) =>
-          b.type === 'TextualBody' &&
-          b.purpose === 'tagging' &&
-          (Array.isArray(b.value) ? b.value : [b.value]).includes(UMBRELLA_THEME_TAG),
-      );
-      if (!carriesUmbrella) continue;
+        // Only annotations that *also* carry the umbrella 'Theme' tag are theme spans
+        // (this filters out other linking annotations the corpus may have).
+        const carriesUmbrella = bodies.some(
+          (b: any) =>
+            b.type === 'TextualBody' &&
+            b.purpose === 'tagging' &&
+            (Array.isArray(b.value) ? b.value : [b.value]).includes(UMBRELLA_THEME_TAG),
+        );
+        if (!carriesUmbrella) continue;
 
-      const target = ann.target;
-      const selectors =
-        typeof target === 'string' || !target.selector
-          ? []
-          : Array.isArray(target.selector)
-            ? target.selector
-            : [target.selector];
-      let text = '';
-      for (const s of selectors) {
-        if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
-      }
-      for (const label of tagValues) {
-        if (!themesByLabel.has(label)) themesByLabel.set(label, []);
-        themesByLabel.get(label)!.push({ rId, rName: r.name ?? r['@id'], text });
+        const target = ann.target;
+        const selectors =
+          typeof target === 'string' || !target.selector
+            ? []
+            : Array.isArray(target.selector)
+              ? target.selector
+              : [target.selector];
+        let text = '';
+        for (const s of selectors) {
+          if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
+        }
+        for (const label of tagValues) {
+          if (!themesByLabel.has(label)) themesByLabel.set(label, []);
+          themesByLabel.get(label)!.push({ rId, rName: r.name ?? r['@id'], text });
+        }
       }
     }
-  }
 
-  console.log(`Found ${themesByLabel.size} distinct theme label(s) across the corpus.`);
+    console.log(`Found ${themesByLabel.size} distinct theme label(s) across the corpus.`);
 
-  // Publish the discovered theme vocabulary via frame so browse.entityTypes() sees it.
-  if (themesByLabel.size > 0) {
-    const discovered = Array.from(themesByLabel.keys());
-    console.log(`Declaring ${discovered.length} discovered theme labels via frame...`);
-    await semiont.frame.addEntityTypes(discovered);
-  }
-
-  let synthesized = 0;
-  for (const [label, examples] of themesByLabel) {
-    const lines = [
-      `# ${label.replace(/-/g, ' ')}`,
-      '',
-      `Recurring theme exemplified across ${examples.length} passage(s) in the corpus.`,
-      '',
-      '## Examples',
-      '',
-    ];
-    for (const ex of examples.slice(0, 25)) {
-      lines.push(`- *In ${ex.rName}*: "${ex.text}"`);
+    // Publish the discovered theme vocabulary via frame so browse.entityTypes() sees it.
+    if (themesByLabel.size > 0) {
+      const discovered = Array.from(themesByLabel.keys());
+      console.log(`Declaring ${discovered.length} discovered theme labels via frame...`);
+      await semiont.frame.addEntityTypes(discovered);
     }
-    if (examples.length > 25) lines.push(`- … and ${examples.length - 25} more.`);
-    const body = lines.join('\n') + '\n';
 
-    const { resourceId } = await semiont.yield.resource({
-      name: `Theme: ${label}`,
-      file: Buffer.from(body, 'utf-8'),
-      format: 'text/markdown',
-      entityTypes: ['Theme', label],
-      storageUri: `file://generated/theme-${slugify(label)}.md`,
-    });
-    synthesized++;
-    console.log(`  + ${label} → ${resourceId} (${examples.length} examples)`);
+    let synthesized = 0;
+    for (const [label, examples] of themesByLabel) {
+      const lines = [
+        `# ${label.replace(/-/g, ' ')}`,
+        '',
+        `Recurring theme exemplified across ${examples.length} passage(s) in the corpus.`,
+        '',
+        '## Examples',
+        '',
+      ];
+      for (const ex of examples.slice(0, 25)) {
+        lines.push(`- *In ${ex.rName}*: "${ex.text}"`);
+      }
+      if (examples.length > 25) lines.push(`- … and ${examples.length - 25} more.`);
+      const body = lines.join('\n') + '\n';
+
+      const { resourceId } = await semiont.yield.resource({
+        name: `Theme: ${label}`,
+        file: Buffer.from(body, 'utf-8'),
+        format: 'text/markdown',
+        entityTypes: ['Theme', label],
+        storageUri: `file://generated/theme-${slugify(label)}.md`,
+      });
+      synthesized++;
+      console.log(`  + ${label} → ${resourceId} (${examples.length} examples)`);
+    }
+
+    console.log(
+      `\nDone. Synthesized ${synthesized} Theme resources from ${themesByLabel.size} distinct theme labels.`,
+    );
+    closeInteractive();
+  } finally {
+    await session.dispose();
   }
-
-  console.log(
-    `\nDone. Synthesized ${synthesized} Theme resources from ${themesByLabel.size} distinct theme labels.`,
-  );
-  await session.dispose();
-  closeInteractive();
 }
 
 main().catch((e) => {

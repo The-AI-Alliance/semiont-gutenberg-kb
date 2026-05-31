@@ -66,67 +66,68 @@ async function main(): Promise<void> {
   const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
   const semiont = session.client;
 
-  let targets: ResourceId[];
-  if (explicitResourceId) {
-    targets = [ridBrand(explicitResourceId)];
-  } else {
-    const all = await semiont.browse.resources({ limit: 1000 });
-    targets = all
-      .filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'))
-      .map((r) => ridBrand(r['@id']));
-  }
-
-  if (targets.length === 0) {
-    console.log('No LiteraryPassage resources found.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
-
-  console.log(
-    `Will run relationship-extraction passes against ${targets.length} passage(s):` +
-      `${RUN_CHAR_CHAR ? '\n  - character ↔ character' : ''}` +
-      `${RUN_CHAR_PLACE ? '\n  - character ↔ place' : ''}`,
-  );
-
-  const proceed = await confirm('Proceed?', true);
-  if (!proceed) {
-    console.log('Aborted.');
-    await session.dispose();
-    closeInteractive();
-    return;
-  }
-
-  let totalCC = 0;
-  let totalCP = 0;
-
-  for (const rId of targets) {
-    if (RUN_CHAR_CHAR) {
-      const progress = await semiont.mark.assist(rId, 'linking', {
-        entityTypes: CHAR_CHAR_ENTITY_TYPES,
-        instructions: CHAR_CHAR_INSTRUCTIONS,
-      });
-      const n = createdCount(progress);
-      totalCC += n;
-      console.log(`  ${rId} (char-char): ${n} relationship annotations`);
+  try {
+    let targets: ResourceId[];
+    if (explicitResourceId) {
+      targets = [ridBrand(explicitResourceId)];
+    } else {
+      const all = await semiont.browse.resources({ limit: 1000 });
+      targets = all
+        .filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'))
+        .map((r) => ridBrand(r['@id']));
     }
-    if (RUN_CHAR_PLACE) {
-      const progress = await semiont.mark.assist(rId, 'linking', {
-        entityTypes: CHAR_PLACE_ENTITY_TYPES,
-        instructions: CHAR_PLACE_INSTRUCTIONS,
-      });
-      const n = createdCount(progress);
-      totalCP += n;
-      console.log(`  ${rId} (char-place): ${n} association annotations`);
-    }
-  }
 
-  console.log(
-    `\nDone. ${totalCC} character-character + ${totalCP} character-place ` +
-      `relationship annotations created.`,
-  );
-  await session.dispose();
-  closeInteractive();
+    if (targets.length === 0) {
+      console.log('No LiteraryPassage resources found.');
+      closeInteractive();
+      return;
+    }
+
+    console.log(
+      `Will run relationship-extraction passes against ${targets.length} passage(s):` +
+        `${RUN_CHAR_CHAR ? '\n  - character ↔ character' : ''}` +
+        `${RUN_CHAR_PLACE ? '\n  - character ↔ place' : ''}`,
+    );
+
+    const proceed = await confirm('Proceed?', true);
+    if (!proceed) {
+      console.log('Aborted.');
+      closeInteractive();
+      return;
+    }
+
+    let totalCC = 0;
+    let totalCP = 0;
+
+    for (const rId of targets) {
+      if (RUN_CHAR_CHAR) {
+        const progress = await semiont.mark.assist(rId, 'linking', {
+          entityTypes: CHAR_CHAR_ENTITY_TYPES,
+          instructions: CHAR_CHAR_INSTRUCTIONS,
+        });
+        const n = createdCount(progress);
+        totalCC += n;
+        console.log(`  ${rId} (char-char): ${n} relationship annotations`);
+      }
+      if (RUN_CHAR_PLACE) {
+        const progress = await semiont.mark.assist(rId, 'linking', {
+          entityTypes: CHAR_PLACE_ENTITY_TYPES,
+          instructions: CHAR_PLACE_INSTRUCTIONS,
+        });
+        const n = createdCount(progress);
+        totalCP += n;
+        console.log(`  ${rId} (char-place): ${n} association annotations`);
+      }
+    }
+
+    console.log(
+      `\nDone. ${totalCC} character-character + ${totalCP} character-place ` +
+        `relationship annotations created.`,
+    );
+    closeInteractive();
+  } finally {
+    await session.dispose();
+  }
 }
 
 main().catch((e) => {
