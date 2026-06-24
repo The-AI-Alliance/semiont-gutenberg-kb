@@ -21,7 +21,7 @@ You are helping the user build the Character canon for a literary corpus — eve
 
 ## SDK verbs
 
-- `browse.resources`, `browse.annotations`, `gather.annotation`, `match.search`, `yield.resource`, `bind.body`
+- `browse.resources`, `browse.annotations`, `gather.annotation`, `match.search`, `yield.fromAnnotation`, `bind.body`
 
 ## Parameters
 

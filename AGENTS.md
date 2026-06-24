@@ -16,11 +16,12 @@ If you're an AI assistant working in this repo, this file is your orientation. T
   - `src/wikipedia.ts` — Wikipedia URL lookups + "External references" formatting (cached locally to `.cache/wikipedia/`)
   - `src/handlers/gutenberg.ts` — `downloadGutenbergText` + `extractGutenbergSection` for fetching new ebooks on demand
   - `src/interactive.ts` — `confirm` / `pick` / `preview` helpers for tier-3 interactive checkpoints
-- **`skills/`** — eleven skills, each shipping a `SKILL.md` plus a `script.ts` that uses `@semiont/sdk` against the running backend.
+- **`skills/`** — twelve skills, each shipping a `SKILL.md` plus a `script.ts` that uses `@semiont/sdk` against the running backend.
 
 | Skill | What it does | New SDK verbs |
 |---|---|---|
 | [`ingest-corpus`](skills/ingest-corpus/) | Walk the repo, declare the KB's entity-type vocabulary, create one resource per file | `frame.addEntityTypes`, `yield.resource` |
+| [`register-tag-schemas`](skills/register-tag-schemas/) | One-time bootstrap — register the KB's tag schemas (`argument-toulmin`) with the runtime | `frame.addTagSchema` |
 | [`mark-characters`](skills/mark-characters/) | Detect Character mentions (named + descriptive) | `mark.assist` (linking + descriptive references) |
 | [`mark-places`](skills/mark-places/) | Detect Place mentions | `mark.assist` (linking) |
 | [`assess-dangerous-situations`](skills/assess-dangerous-situations/) | Flag spans of physical / moral / supernatural danger | `mark.assist` (assessing) |

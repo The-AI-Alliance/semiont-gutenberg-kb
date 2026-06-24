@@ -14,7 +14,7 @@ import { discoverCorpus, readForUpload } from '../../src/files.js';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
 
 /**
- * The full entity-type vocabulary this KB uses across all eleven skills.
+ * The full entity-type vocabulary this KB uses across all of its skills.
  * Declared via `frame.addEntityTypes` once on each ingest run — idempotent,
  * so re-runs are harmless. This is what makes `browse.entityTypes()` return
  * a coherent published vocabulary.

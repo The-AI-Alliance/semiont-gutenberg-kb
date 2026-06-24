@@ -13,13 +13,13 @@ You are helping the user anchor a literary work in real-world history — buildi
 For each target passage (typically the work's "Argument" or framing section), the skill runs `mark.assist` with a custom instruction asking the model to identify 3-7 relevant historical anchors: the era of the author, prior tradition the work draws on, audience and venue, real events that shaped the author's perspective, recurring philosophical / religious concepts. Each identified anchor becomes:
 
 1. A linking annotation tagged with the anchor name
-2. A new HistoricalContext resource synthesized via `yield.resource`, body markdown citing the canonical Wikipedia URL via `src/wikipedia.ts`
+2. A new HistoricalContext resource synthesized via `yield.fromAnnotation`, body markdown citing the canonical Wikipedia URL via `src/wikipedia.ts`
 
 Anchors are deduplicated across passages by canonical name.
 
 ## SDK verbs
 
-- `browse.resources`, `browse.annotations`, `mark.assist`, `yield.resource`
+- `browse.resources`, `browse.annotations`, `mark.assist`, `gather.annotation`, `yield.fromAnnotation`
 
 ## Parameters
 

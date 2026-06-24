@@ -19,7 +19,7 @@
  *   group by label, synthesize one Theme resource per distinct label.
  *
  * Why not motivation 'tagging'? Tagging requires a registered schemaId from
- * packages/ontology/src/tag-schemas.ts — appropriate for IRAC / IMRAD /
+ * src/tag-schemas.ts — appropriate for IRAC / IMRAD /
  * Toulmin (broadly-applicable structural-analysis frameworks). Open-
  * vocabulary themes are a per-corpus enum and don't deserve a registered
  * schema; the linking shape is the right fit.

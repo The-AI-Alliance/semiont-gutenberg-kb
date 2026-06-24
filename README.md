@@ -19,11 +19,12 @@ This corpus is well-suited for entity recognition across characters, authors, pl
 
 ## Skills
 
-This repo ships eleven skills that build a layered literary KB on top of the Semiont SDK. See [AGENTS.md](AGENTS.md) for the full design discussion.
+This repo ships twelve skills that build a layered literary KB on top of the Semiont SDK. See [AGENTS.md](AGENTS.md) for the full design discussion.
 
 | Skill | What it does |
 |---|---|
 | [`ingest-corpus`](skills/ingest-corpus/SKILL.md) | Walk the repo's literary content (sections, curated articles, ebooks); create one resource per file. |
+| [`register-tag-schemas`](skills/register-tag-schemas/SKILL.md) | One-time bootstrap — register the KB's tag schemas (`argument-toulmin`) with the runtime so the TaggingPanel can use them. |
 | [`mark-characters`](skills/mark-characters/SKILL.md) | Detect Character mentions including descriptive references ("the Chorus", "the messenger"). |
 | [`mark-places`](skills/mark-places/SKILL.md) | Detect Place mentions — both real geographic places and mythological realms. |
 | [`assess-dangerous-situations`](skills/assess-dangerous-situations/SKILL.md) | Flag spans of physical / moral / supernatural danger; used as peak-danger landmarks for plot-arc synthesis. |

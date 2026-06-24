@@ -10,14 +10,14 @@ You are helping the user surface the recurring concerns that thread through a li
 
 ## What it does
 
-1. Pass 1 — tagging: `mark.assist({ motivation: 'tagging', instructions: ... })` over each LiteraryPassage. The model tags passages with short hyphenated theme labels (e.g., `hubris`, `fate-vs-free-will`, `fire-as-civilization`, `divine-cruelty`).
-2. Pass 2 — aggregation: collect every tagging annotation by theme value. For each distinct theme, `yield.resource` a Theme resource with markdown body listing example passages.
+1. Pass 1 — discovery: `mark.assist({ motivation: 'linking', entityTypes: ['Theme'], instructions: ... })` over each LiteraryPassage. The model marks each thematically-significant span and attaches a short hyphenated theme label (e.g., `hubris`, `fate-vs-free-will`, `fire-as-civilization`, `divine-cruelty`) as a tagging-purpose body value. (Open-vocabulary themes use the `linking` shape, not schema-bound `tagging` — the script header explains why.)
+2. Pass 2 — aggregation: walk the linking annotations, group by theme label (the tagging-purpose body values), publish the discovered labels to the KB vocabulary via `frame.addEntityTypes`, and `yield.resource` one Theme resource per distinct theme — markdown body listing example passages.
 
 The themes that surface depend entirely on the corpus — a tragedy produces different themes than a romance or a satirical novel.
 
 ## SDK verbs
 
-- `mark.assist({ motivation: 'tagging', instructions: ... })`, `browse.resources`, `browse.annotations`, `yield.resource`
+- `mark.assist({ motivation: 'linking', entityTypes: ['Theme'], instructions: ... })`, `browse.resources`, `browse.annotations`, `frame.addEntityTypes`, `yield.resource`
 
 ## Parameters
 
