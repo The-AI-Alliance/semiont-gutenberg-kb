@@ -1,7 +1,6 @@
 # Project Gutenberg Knowledge Base
 
 [![Lint](https://github.com/The-AI-Alliance/semiont-gutenberg-kb/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/The-AI-Alliance/semiont-gutenberg-kb/actions/workflows/lint.yml?query=branch%3Amain)
-[![Build](https://github.com/The-AI-Alliance/semiont-gutenberg-kb/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/The-AI-Alliance/semiont-gutenberg-kb/actions/workflows/build.yml?query=branch%3Amain)
 [![License](https://img.shields.io/github/license/The-AI-Alliance/semiont-gutenberg-kb)](https://github.com/The-AI-Alliance/semiont-gutenberg-kb/blob/main/LICENSE)
 
 A curated corpus of public domain literary texts from [Project Gutenberg](https://www.gutenberg.org/) — organized for analysis, annotation, and knowledge extraction.
