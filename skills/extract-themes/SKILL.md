@@ -1,6 +1,6 @@
 ---
 name: extract-themes
-description: Tag passages with recurring thematic concerns and synthesize one Theme resource per distinct theme. Open vocabulary — themes that surface depend on the corpus.
+description: Comment on passages with the recurring thematic concern each exemplifies, and synthesize one Theme resource per distinct theme. Open vocabulary — themes that surface depend on the corpus.
 disable-model-invocation: false
 user-invocable: true
 allowed-tools: Bash, Read, Write
@@ -10,14 +10,16 @@ You are helping the user surface the recurring concerns that thread through a li
 
 ## What it does
 
-1. Pass 1 — discovery: `mark.assist({ motivation: 'linking', entityTypes: ['Theme'], instructions: ... })` over each LiteraryPassage. The model marks each thematically-significant span and attaches a short hyphenated theme label (e.g., `hubris`, `fate-vs-free-will`, `fire-as-civilization`, `divine-cruelty`) as a tagging-purpose body value. (Open-vocabulary themes use the `linking` shape, not schema-bound `tagging` — the script header explains why.)
-2. Pass 2 — aggregation: walk the linking annotations, group by theme label (the tagging-purpose body values), publish the discovered labels to the KB vocabulary via `frame.addEntityTypes`, and `yield.resource` one Theme resource per distinct theme — markdown body listing example passages.
+1. Pass 1 — discovery: `mark.delegate({ motivation: 'commenting', instructions: ... })` over each LiteraryPassage. The model comments on each thematically-significant span, and the comment is the theme alone: a short hyphenated label (e.g., `hubris`, `fate-vs-free-will`, `divine-cruelty`).
+2. Pass 2 — aggregation: walk the commenting annotations whose comment is such a label, group by label, publish the discovered labels to the KB vocabulary via `frame.addEntityTypes`, and `yield.resource` one Theme resource per distinct theme — markdown listing each passage that exemplifies it.
+
+A commenting job is used because it takes instructions and records the model's own words on a span. A linking job detects mentions of entity types and takes no instructions, and a tagging job needs a registered schema of categories.
 
 The themes that surface depend entirely on the corpus — a tragedy produces different themes than a romance or a satirical novel.
 
 ## SDK verbs
 
-- `mark.assist({ motivation: 'linking', entityTypes: ['Theme'], instructions: ... })`, `browse.resources`, `browse.annotations`, `frame.addEntityTypes`, `yield.resource`
+- `mark.delegate({ motivation: 'commenting', instructions: ... })`, `browse.resources`, `browse.annotations`, `frame.addEntityTypes`, `yield.resource`
 
 ## Parameters
 
@@ -36,11 +38,11 @@ HOST_ADDR=$(container run --rm node:24-alpine sh -c "ip route | awk '/default/{p
 
 container run --rm -v "$(pwd):/work" -w /work \
   -e SEMIONT_API_URL=http://${HOST_ADDR}:4000 \
-  -e SEMIONT_USER_EMAIL=admin@example.com \
-  -e SEMIONT_USER_PASSWORD=<your-password> \
   node:24-alpine \
-  sh -c 'npm install --silent --no-fund @semiont/sdk tsx && npx tsx skills/extract-themes/script.ts'
+  sh -c 'npm ci --no-audit --no-fund && npx tsx skills/extract-themes/script.ts'
 ```
+
+The script prints an address: open it in a browser and approve the sign-in. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
 
 ## Guidance for the AI assistant
 

@@ -21,7 +21,7 @@ You are helping the user build the Character canon for a literary corpus — eve
 
 ## SDK verbs
 
-- `browse.resources`, `browse.annotations`, `gather.annotation`, `match.search`, `yield.fromContext`, `bind.body`
+- `browse.resources`, `browse.annotations`, `gather.annotation`, `match.search`, `yield.delegate`, `bind.body`
 
 ## Parameters
 
@@ -42,12 +42,12 @@ HOST_ADDR=$(container run --rm node:24-alpine sh -c "ip route | awk '/default/{p
 
 container run --rm -v "$(pwd):/work" -w /work \
   -e SEMIONT_API_URL=http://${HOST_ADDR}:4000 \
-  -e SEMIONT_USER_EMAIL=admin@example.com \
-  -e SEMIONT_USER_PASSWORD=<your-password> \
   -e MATCH_THRESHOLD=30 \
   node:24-alpine \
-  sh -c 'npm install --silent --no-fund @semiont/sdk tsx && npx tsx skills/build-character-articles/script.ts'
+  sh -c 'npm ci --no-audit --no-fund && npx tsx skills/build-character-articles/script.ts'
 ```
+
+The script prints an address: open it in a browser and approve the sign-in. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
 
 (See [`ingest-corpus`'s "Run it"](../ingest-corpus/SKILL.md#run-it) for networking notes.)
 

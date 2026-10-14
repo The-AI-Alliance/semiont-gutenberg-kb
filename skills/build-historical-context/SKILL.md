@@ -10,16 +10,16 @@ You are helping the user anchor a literary work in real-world history — buildi
 
 ## What it does
 
-For each target passage (typically the work's "Argument" or framing section), the skill runs `mark.assist` with a custom instruction asking the model to identify 3-7 relevant historical anchors: the era of the author, prior tradition the work draws on, audience and venue, real events that shaped the author's perspective, recurring philosophical / religious concepts. Each identified anchor becomes:
+For each target passage (typically the work's "Argument" or framing section), the skill runs a linking job, `mark.delegate({ motivation: 'linking', entityTypes: ['HistoricalContext'] })`, which marks the mentions of that entity type: the era of the author, a prior tradition the work draws on, a real event, a recurring philosophical or religious concept. A linking job takes no instructions; the entity types are what it looks for, and `ANCHOR_ENTITY_TYPES` names them. Each identified anchor becomes:
 
 1. A linking annotation tagged with the anchor name
-2. A new HistoricalContext resource synthesized via `yield.fromContext`, body markdown citing the canonical Wikipedia URL via `src/wikipedia.ts`
+2. A new HistoricalContext resource synthesized via `yield.delegate`, body markdown citing the canonical Wikipedia URL via `src/wikipedia.ts`
 
 Anchors are deduplicated across passages by canonical name.
 
 ## SDK verbs
 
-- `browse.resources`, `browse.annotations`, `mark.assist`, `gather.annotation`, `yield.fromContext`
+- `browse.resources`, `browse.annotations`, `mark.delegate`, `gather.annotation`, `yield.delegate`
 
 ## Parameters
 
@@ -40,11 +40,11 @@ HOST_ADDR=$(container run --rm node:24-alpine sh -c "ip route | awk '/default/{p
 
 container run --rm -v "$(pwd):/work" -w /work \
   -e SEMIONT_API_URL=http://${HOST_ADDR}:4000 \
-  -e SEMIONT_USER_EMAIL=admin@example.com \
-  -e SEMIONT_USER_PASSWORD=<your-password> \
   node:24-alpine \
-  sh -c 'npm install --silent --no-fund @semiont/sdk tsx && npx tsx skills/build-historical-context/script.ts'
+  sh -c 'npm ci --no-audit --no-fund && npx tsx skills/build-historical-context/script.ts'
 ```
+
+The script prints an address: open it in a browser and approve the sign-in. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
 
 ## Wikipedia citation pattern
 

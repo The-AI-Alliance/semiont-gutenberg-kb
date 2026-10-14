@@ -8,15 +8,15 @@ allowed-tools: Bash, Read, Write
 
 You are helping the user identify the moments of peril in a literary work — the binding scenes, the cosmic threats, the moral crossroads.
 
-This is one of four tier-1 marking skills. It uses `mark.assist` with motivation `assessing` (Semiont's "red-underline" annotation type). In tragic literature these moments are abundant; in lighter genres they may be sparse — both cases work.
+This is one of four tier-1 marking skills. It uses `mark.delegate` with motivation `assessing` (Semiont's "red-underline" annotation type). In tragic literature these moments are abundant; in lighter genres they may be sparse — both cases work.
 
 ## What it does
 
-For each LiteraryPassage resource, runs `mark.assist({ motivation: 'assessing', instructions: ... })` to flag situations of physical danger, moral peril, threats of violence, supernatural punishment, or imminent harm to characters.
+For each LiteraryPassage resource, runs `mark.delegate({ motivation: 'assessing', instructions: ... })` to flag situations of physical danger, moral peril, threats of violence, supernatural punishment, or imminent harm to characters.
 
 ## SDK verbs
 
-- `browse.resources`, `mark.assist`
+- `browse.resources`, `mark.delegate`
 
 ## Parameters
 
@@ -36,11 +36,11 @@ HOST_ADDR=$(container run --rm node:24-alpine sh -c "ip route | awk '/default/{p
 
 container run --rm -v "$(pwd):/work" -w /work \
   -e SEMIONT_API_URL=http://${HOST_ADDR}:4000 \
-  -e SEMIONT_USER_EMAIL=admin@example.com \
-  -e SEMIONT_USER_PASSWORD=<your-password> \
   node:24-alpine \
-  sh -c 'npm install --silent --no-fund @semiont/sdk tsx && npx tsx skills/assess-dangerous-situations/script.ts'
+  sh -c 'npm ci --no-audit --no-fund && npx tsx skills/assess-dangerous-situations/script.ts'
 ```
+
+The script prints an address: open it in a browser and approve the sign-in. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
 
 (See [`ingest-corpus`'s "Run it"](../ingest-corpus/SKILL.md#run-it) for networking notes.)
 
