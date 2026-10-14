@@ -8,16 +8,16 @@ allowed-tools: Bash, Read, Write
 
 You are helping the user detect Character mentions in a literary corpus.
 
-This is one of four tier-1 marking skills. It uses `mark.assist` with motivation `linking` and `includeDescriptiveReferences: true` to catch both formal-name spans and anaphoric mentions.
+This is one of four tier-1 marking skills. It uses `mark.delegate` with motivation `linking` and `includeDescriptiveReferences: true` to catch both formal-name spans and anaphoric mentions.
 
 ## What it does
 
-For each LiteraryPassage resource (or one specific resource), runs `mark.assist({ motivation: 'linking', entityTypes: [...], includeDescriptiveReferences: true })`. Tags formal-name spans plus phrases like "the Chorus", "the messenger", "the visiting god", "the bound Titan".
+For each LiteraryPassage resource (or one specific resource), runs `mark.delegate({ motivation: 'linking', entityTypes: [...], includeDescriptiveReferences: true })`. Tags formal-name spans plus phrases like "the Chorus", "the messenger", "the visiting god", "the bound Titan".
 
 ## SDK verbs
 
 - `browse.resources` — find LiteraryPassage targets
-- `mark.assist({ motivation: 'linking', entityTypes: [...], includeDescriptiveReferences: true })`
+- `mark.delegate({ motivation: 'linking', entityTypes: [...], includeDescriptiveReferences: true })`
 
 ## Parameters
 
@@ -39,11 +39,11 @@ HOST_ADDR=$(container run --rm node:24-alpine sh -c "ip route | awk '/default/{p
 
 container run --rm -v "$(pwd):/work" -w /work \
   -e SEMIONT_API_URL=http://${HOST_ADDR}:4000 \
-  -e SEMIONT_USER_EMAIL=admin@example.com \
-  -e SEMIONT_USER_PASSWORD=<your-password> \
   node:24-alpine \
-  sh -c 'npm install --silent --no-fund @semiont/sdk tsx && npx tsx skills/mark-characters/script.ts'
+  sh -c 'npm ci --no-audit --no-fund && npx tsx skills/mark-characters/script.ts'
 ```
+
+The script prints an address: open it in a browser and approve the sign-in. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
 
 Override entity types per genre with `-e ENTITY_TYPES='Character,Antagonist,Narrator'` for a non-classical work. Add `-e SEMIONT_INTERACTIVE=1 -it` for the confirm prompt.
 

@@ -14,7 +14,7 @@
  * Usage: tsx skills/trace-plot-arc/script.ts [<workNamePattern>] [--interactive]
  */
 
-import { SemiontSession, InMemorySessionStorage, resourceId as ridBrand, type KbTarget, type ResourceId } from '@semiont/sdk';
+import { SemiontSession, InMemorySessionStorage, httpKb, getBodySource, type ResourceId } from '@semiont/sdk';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
 
 const PLOT_FRAMEWORK = process.env.PLOT_FRAMEWORK ?? 'auto';
@@ -36,17 +36,21 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2).filter((a) => !a.startsWith('-'));
   const workPattern = args[0]?.toLowerCase();
 
-  const baseUrl = process.env.SEMIONT_API_URL ?? 'http://localhost:4000';
-  const email = process.env.SEMIONT_USER_EMAIL!;
-  const password = process.env.SEMIONT_USER_PASSWORD!;
-  const u = new URL(baseUrl);
-  const kb: KbTarget = {
-    id: 'gutenberg-trace-plot-arc',
-    label: 'gutenberg trace-plot-arc',
-    email,
-    endpoint: { kind: 'http', host: u.hostname, port: Number(u.port) || 4000, protocol: u.protocol.replace(':', '') as 'http' | 'https' },
-  };
-  const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
+  const gateway = new URL(process.env.SEMIONT_API_URL ?? 'http://localhost:4000');
+  const session = await SemiontSession.signInDevice({
+    kb: httpKb({
+      id: 'gutenberg-trace-plot-arc',
+      label: 'gutenberg trace-plot-arc',
+      host: gateway.hostname,
+      port: Number(gateway.port) || 4000,
+      protocol: gateway.protocol === 'https:' ? 'https' : 'http',
+    }),
+    storage: new InMemorySessionStorage(),
+    onCode: ({ verificationUri, verificationUriComplete, userCode }) => {
+      console.error(`Approve this script at ${verificationUriComplete ?? verificationUri}`);
+      if (!verificationUriComplete) console.error(`Code: ${userCode}`);
+    },
+  });
   const semiont = session.client;
 
   try {
@@ -66,7 +70,7 @@ async function main(): Promise<void> {
 
     const rows: PassageRow[] = [];
     for (const r of passages) {
-      const rId = ridBrand(r['@id']);
+      const rId = r['@id'];
       const annotations = await semiont.browse.annotations(rId).fresh();
       let dangerCount = 0;
       let subtextCount = 0;
@@ -74,10 +78,8 @@ async function main(): Promise<void> {
       for (const ann of annotations) {
         if (ann.motivation === 'assessing') dangerCount++;
         if (ann.motivation === 'commenting') subtextCount++;
-        const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
-        const refs = bodies
-          .flatMap((b) => (b.type === 'SpecificResource' ? [b.source] : []));
-        boundRefs.push(...refs);
+        const bound = getBodySource(ann.body);
+        if (bound) boundRefs.push(bound);
       }
       rows.push({ rId, name: r.name ?? r['@id'], dangerCount, subtextCount, boundRefs });
     }

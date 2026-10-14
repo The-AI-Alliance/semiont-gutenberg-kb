@@ -30,9 +30,9 @@ This repo ships twelve skills that build a layered literary KB on top of the Sem
 | [`comment-subtext`](skills/comment-subtext/SKILL.md) | Add commenting annotations capturing inner thoughts, subtext, dramatic irony, plot-significance markers. |
 | [`build-character-articles`](skills/build-character-articles/SKILL.md) | Promote Character mentions to canonical wiki-style Character resources with Wikipedia citations. |
 | [`build-place-articles`](skills/build-place-articles/SKILL.md) | Promote Place mentions to canonical wiki-style Place resources with Wikipedia citations. |
-| [`map-relationships`](skills/map-relationships/SKILL.md) | Extract character-character + character-place relationships as tagged linking annotations. |
+| [`map-relationships`](skills/map-relationships/SKILL.md) | Record character-character + character-place relationships the assistant decides, each as a Relationship resource. |
 | [`build-historical-context`](skills/build-historical-context/SKILL.md) | Synthesize HistoricalContext resources for the work's era, prior tradition, audience, and concepts. |
-| [`extract-themes`](skills/extract-themes/SKILL.md) | Tag passages with thematic concerns; synthesize one Theme resource per distinct theme. |
+| [`extract-themes`](skills/extract-themes/SKILL.md) | Comment on passages with their thematic concern; synthesize one Theme resource per distinct theme. |
 | [`trace-plot-arc`](skills/trace-plot-arc/SKILL.md) | Synthesize a per-work PlotArc resource documenting the narrative structure. |
 
 ## Quick Start

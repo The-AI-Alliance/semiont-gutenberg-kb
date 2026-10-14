@@ -22,15 +22,15 @@ If you're an AI assistant working in this repo, this file is your orientation. T
 |---|---|---|
 | [`ingest-corpus`](skills/ingest-corpus/) | Walk the repo, declare the KB's entity-type vocabulary, create one resource per file | `frame.addEntityTypes`, `yield.resource` |
 | [`register-tag-schemas`](skills/register-tag-schemas/) | One-time bootstrap — register the KB's tag schemas (`argument-toulmin`) with the runtime | `frame.addTagSchema` |
-| [`mark-characters`](skills/mark-characters/) | Detect Character mentions (named + descriptive) | `mark.assist` (linking + descriptive references) |
-| [`mark-places`](skills/mark-places/) | Detect Place mentions | `mark.assist` (linking) |
-| [`assess-dangerous-situations`](skills/assess-dangerous-situations/) | Flag spans of physical / moral / supernatural danger | `mark.assist` (assessing) |
-| [`comment-subtext`](skills/comment-subtext/) | Inline subtext / inner-thought / plot-significance commentary | `mark.assist` (commenting) |
-| [`build-character-articles`](skills/build-character-articles/) | Promote Character mentions to canonical wiki-style Character resources with Wikipedia citations | `+ yield.fromContext` |
-| [`build-place-articles`](skills/build-place-articles/) | Promote Place mentions to canonical Place resources with Wikipedia citations; matches against curated articles | `+ yield.fromContext` |
-| [`map-relationships`](skills/map-relationships/) | Extract character-character + character-place relationships, encode as binding annotations | `mark.assist`, `bind.body` |
-| [`build-historical-context`](skills/build-historical-context/) | Synthesize HistoricalContext resources anchoring the work in real-world history, citing Wikipedia | `+ yield.resource` |
-| [`extract-themes`](skills/extract-themes/) | Tag and synthesize Theme resources for recurring thematic concerns | `mark.assist` (tagging) |
+| [`mark-characters`](skills/mark-characters/) | Detect Character mentions (named + descriptive) | `mark.delegate` (linking + descriptive references) |
+| [`mark-places`](skills/mark-places/) | Detect Place mentions | `mark.delegate` (linking) |
+| [`assess-dangerous-situations`](skills/assess-dangerous-situations/) | Flag spans of physical / moral / supernatural danger | `mark.delegate` (assessing) |
+| [`comment-subtext`](skills/comment-subtext/) | Inline subtext / inner-thought / plot-significance commentary | `mark.delegate` (commenting) |
+| [`build-character-articles`](skills/build-character-articles/) | Promote Character mentions to canonical wiki-style Character resources with Wikipedia citations | `+ yield.delegate` |
+| [`build-place-articles`](skills/build-place-articles/) | Promote Place mentions to canonical Place resources with Wikipedia citations; matches against curated articles | `+ yield.delegate` |
+| [`map-relationships`](skills/map-relationships/) | Record character-character + character-place relationships the assistant decides, each a Relationship resource its passage is bound to | `yield.resource`, `mark.annotation`, `bind.body` |
+| [`build-historical-context`](skills/build-historical-context/) | Synthesize HistoricalContext resources anchoring the work in real-world history, citing Wikipedia | `+ yield.delegate` |
+| [`extract-themes`](skills/extract-themes/) | Comment on recurring thematic concerns and synthesize a Theme resource for each | `mark.delegate` (commenting) |
 | [`trace-plot-arc`](skills/trace-plot-arc/) | Per-work narrative-structure synthesis — inciting incident, rising action, climax, denouement | full pipeline composition |
 
 ## What does literary analysis involve?
@@ -125,8 +125,8 @@ Skills are parameterized in three tiers.
 | Var | Purpose |
 |---|---|
 | `SEMIONT_API_URL` | Gateway URL (default `http://localhost:4000`) |
-| `SEMIONT_USER_EMAIL` | Authenticating user |
-| `SEMIONT_USER_PASSWORD` | Authenticating user's password |
+
+A skill signs in by the device grant: it prints an address, and a person approves in a browser. No password passes through the script. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
 
 ### Tier 2 — skill-invocation parameters
 
@@ -145,7 +145,7 @@ Tier-2 env vars can pre-answer tier-3 prompts (e.g., `MATCH_THRESHOLD=25` pre-an
 | Where | What |
 |---|---|
 | [`@semiont/sdk` README](https://github.com/The-AI-Alliance/semiont/tree/main/packages/sdk) | The TypeScript surface — eight verbs (frame, yield, mark, match, bind, gather, browse, beckon) plus admin/auth/job. |
-| [SDK Usage docs](https://github.com/The-AI-Alliance/semiont/tree/main/packages/sdk/docs) | Cache semantics, reactive model, state units, error handling. |
+| [SDK Usage docs](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/Usage.md) | Cache semantics, reactive model, state units, error handling. |
 | [Semiont protocol docs](https://github.com/The-AI-Alliance/semiont/tree/main/docs/protocol) | The eight-flow framing. |
-| [Semiont protocol skills](https://github.com/The-AI-Alliance/semiont/tree/main/docs/protocol/skills) | Reference skill packs — `semiont-wiki`, `semiont-comment`, `semiont-highlight`, etc. The patterns in this repo borrow from these. |
+| [Semiont agent skills](https://github.com/The-AI-Alliance/semiont/tree/main/docs/builder/skills) | Reference skill packs — `semiont-wiki`, `semiont-comment`, `semiont-highlight`, etc. The patterns in this repo borrow from these. |
 | [.plans/LITERATURE-SKILLS.md](.plans/LITERATURE-SKILLS.md) | The full design plan for these skills. |

@@ -8,11 +8,11 @@ allowed-tools: Bash, Read, Write
 
 You are helping the user illuminate a literary work with a layer of close-reading commentary — the unspoken thoughts, the irony beneath the literal text, the small actions that move the plot.
 
-This is one of four tier-1 marking skills. It uses `mark.assist` with motivation `commenting`.
+This is one of four tier-1 marking skills. It uses `mark.delegate` with motivation `commenting`.
 
 ## What it does
 
-For each LiteraryPassage resource, runs `mark.assist({ motivation: 'commenting', instructions: ... })` to add short commentary to passages where:
+For each LiteraryPassage resource, runs `mark.delegate({ motivation: 'commenting', instructions: ... })` to add short commentary to passages where:
 
 - A character has unspoken motivation worth surfacing
 - Subtext sits beneath the literal language (irony, evasion, threat couched as politeness)
@@ -22,7 +22,7 @@ Comments are quoted-and-explained in the voice of an attentive reader.
 
 ## SDK verbs
 
-- `browse.resources`, `mark.assist`
+- `browse.resources`, `mark.delegate`
 
 ## Parameters
 
@@ -42,11 +42,11 @@ HOST_ADDR=$(container run --rm node:24-alpine sh -c "ip route | awk '/default/{p
 
 container run --rm -v "$(pwd):/work" -w /work \
   -e SEMIONT_API_URL=http://${HOST_ADDR}:4000 \
-  -e SEMIONT_USER_EMAIL=admin@example.com \
-  -e SEMIONT_USER_PASSWORD=<your-password> \
   node:24-alpine \
-  sh -c 'npm install --silent --no-fund @semiont/sdk tsx && npx tsx skills/comment-subtext/script.ts'
+  sh -c 'npm ci --no-audit --no-fund && npx tsx skills/comment-subtext/script.ts'
 ```
+
+The script prints an address: open it in a browser and approve the sign-in. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
 
 ## Guidance for the AI assistant
 

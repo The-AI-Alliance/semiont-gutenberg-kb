@@ -1,6 +1,6 @@
 ---
 name: map-relationships
-description: Extract character-character + character-place relationships from literary passages. Each detected relationship becomes a tagged linking annotation with a vocabulary value naming the relationship type. Skips Character / Place promotion — that's skills 6 and 7.
+description: Record character-character and character-place relationships from literary passages. Each relationship is a Relationship resource the establishing passage is bound to. The assistant reads the passage and decides; no job extracts relationships.
 disable-model-invocation: false
 user-invocable: true
 allowed-tools: Bash, Read, Write
@@ -8,49 +8,30 @@ allowed-tools: Bash, Read, Write
 
 You are helping the user build the edges of the literary-relationship graph — the kinship, patronage, antagonism, and place-association ties between characters and places.
 
-This is the relationship-extraction layer, designed to run *after* `build-character-articles` (skill 6) and `build-place-articles` (skill 7) have produced the node set. It uses two `mark.assist` passes with different instructions to surface the two relationship classes.
+This is the relationship layer, designed to run *after* `build-character-articles` (skill 6) and `build-place-articles` (skill 7) have produced the node set.
 
 ## What it does
 
-For each LiteraryPassage resource, runs up to two `mark.assist({ motivation: 'linking', instructions: ... })` calls:
+The stack's worker detects mentions of entity types. It has no job that extracts relationships, and a linking job takes no instructions. Deciding that a passage relates two nodes is the judgment this skill supplies: yours, reading the passage as the assistant, or the user's.
 
-1. **Character ↔ character**: kinship (mother, son, brother, spouse), patronage (god/mortal), antagonism, alliance, captor/captive. Tag value names the relationship type.
-2. **Character ↔ place**: imprisoned-at, born-in, rules-over, exiled-to, dwells-in. Tag value names the association type.
+The method, and the script that records what you decided, are the [`semiont-relate`](https://github.com/The-AI-Alliance/semiont/tree/main/docs/builder/skills/semiont-relate) skill's. A relationship is a resource of its own:
 
-Each detected relationship becomes a `linking`-motivation annotation tagged with the relationship value.
+- A **Relationship resource** for each related pair, with entity types `['Relationship', '<type>']`. Its text names the two nodes, and a reference on each name is bound to that node.
+- A **reference on the passage** that establishes the relationship, bound to the Relationship resource and tagged with the relationship's type.
+
+## This corpus's relationship types
+
+Declare these with `frame.addEntityTypes` before recording any (alongside `Relationship`):
+
+1. **Character ↔ character**: `kinship` (mother, son, brother, spouse), `patronage` (god/mortal, patron/client), `antagonism`, `alliance`, `captor`.
+2. **Character ↔ place**: `imprisoned-at`, `born-in`, `rules-over`, `exiled-to`, `dwells-in`.
 
 ## SDK verbs
 
-- `browse.resources`, `mark.assist`
-
-## Parameters
-
-| Parameter | Type | Default | Purpose |
-|---|---|---|---|
-| `<resourceId>` | CLI arg (optional) | all LiteraryPassage resources | Scope to one |
-| `SKIP_CHAR_CHAR=1` | env var | unset | Skip the character-character pass |
-| `SKIP_CHAR_PLACE=1` | env var | unset | Skip the character-place pass |
-
-## Tier-3 interactive checkpoint
-
-Before run: prints which passes will run, asks `confirm`.
-
-## Run it
-
-**Prerequisite: skills 1, 2, 3, 6, 7 have been run.**
-
-```bash
-HOST_ADDR=$(container run --rm node:24-alpine sh -c "ip route | awk '/default/{print \$3}'" 2>/dev/null | tr -d '[:space:]')
-
-container run --rm -v "$(pwd):/work" -w /work \
-  -e SEMIONT_API_URL=http://${HOST_ADDR}:4000 \
-  -e SEMIONT_USER_EMAIL=admin@example.com \
-  -e SEMIONT_USER_PASSWORD=<your-password> \
-  node:24-alpine \
-  sh -c 'npm install --silent --no-fund @semiont/sdk tsx && npx tsx skills/map-relationships/script.ts'
-```
+- `browse.resources`, `browse.annotations`, `frame.addEntityTypes`, `yield.resource`, `mark.annotation`, `bind.body`, `gather.referencedBy`
 
 ## Guidance for the AI assistant
 
-- **Tags carry the relationship type, not body content.** This is a tagging convention applied via the `linking` motivation. Querying the graph means walking these tagged annotations and reading their `target` (anchor span) plus tag value (relationship name).
-- **The skill doesn't synthesize Relationship resources.** A future enhancement could promote each relationship to a structured Relationship resource (entity type `Relationship`) summarizing the pairing across passages. For v1, the tagged annotations on source spans are the graph.
+- **Prerequisite: skills 1, 2, 3, 6, 7 have been run**, so each character and place a passage mentions has a resource to be one end of a relationship.
+- **Read before deciding.** A relationship is recorded where a passage establishes it, not where two names merely appear together.
+- **One Relationship resource per related pair and type.** A second passage that establishes the same relationship gets a reference bound to the existing resource.
