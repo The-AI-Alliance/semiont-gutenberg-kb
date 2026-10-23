@@ -84,7 +84,7 @@ async function main(): Promise<void> {
   }
 
   const gateway = new URL(process.env.SEMIONT_API_URL ?? 'http://localhost:4000');
-  const session = await SemiontSession.signInDevice({
+  const opened = await SemiontSession.signInDevice({
     kb: httpKb({
       id: 'gutenberg-ingest-corpus',
       label: 'gutenberg ingest-corpus',
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
       if (!verificationUriComplete) console.error(`Code: ${userCode}`);
     },
   });
-  const semiont = session.client;
+  const semiont = opened.session.client;
 
   try {
     // Declare this KB's entity-type vocabulary via frame. Idempotent.
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
     console.log(`\nDone. ${created} resources created, ${failed} failed.`);
     closeInteractive();
   } finally {
-    await session.dispose();
+    opened.dispose();
   }
 }
 
