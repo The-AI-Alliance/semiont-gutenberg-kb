@@ -3,7 +3,7 @@
  *
  * Cluster place annotations by canonical text, match each cluster against
  * existing Place resources (including pre-curated articles ingested by skill 1),
- * synthesize new ones with yield.delegate otherwise, bind annotations.
+ * synthesize new ones with yield.fromContext otherwise, bind annotations.
  * The model writes the article body grounded in the gathered context; the
  * Wikipedia URL is woven into an External references section via the prompt.
  * Synthesized resources are stamped with 'Place' plus any sub-types the
@@ -16,10 +16,10 @@
 import {
   SemiontSession,
   InMemorySessionStorage,
-  httpKb,
-  getAnnotationExactText,
-  getEntityTypes,
+  resourceId as ridBrand,
   type AnnotationId,
+  type GatheredContext,
+  type KbTarget,
   type ResourceId,
 } from '@semiont/sdk';
 import { wikipediaSearch } from '../../src/wikipedia.js';
@@ -34,22 +34,18 @@ function slugify(text: string): string {
 }
 
 async function main(): Promise<void> {
-  const gateway = new URL(process.env.SEMIONT_API_URL ?? 'http://localhost:4000');
-  const opened = await SemiontSession.signInDevice({
-    kb: httpKb({
-      id: 'gutenberg-build-place-articles',
-      label: 'gutenberg build-place-articles',
-      host: gateway.hostname,
-      port: Number(gateway.port) || 4000,
-      protocol: gateway.protocol === 'https:' ? 'https' : 'http',
-    }),
-    storage: new InMemorySessionStorage(),
-    onCode: ({ verificationUri, verificationUriComplete, userCode }) => {
-      console.error(`Approve this script at ${verificationUriComplete ?? verificationUri}`);
-      if (!verificationUriComplete) console.error(`Code: ${userCode}`);
-    },
-  });
-  const semiont = opened.session.client;
+  const baseUrl = process.env.SEMIONT_API_URL ?? 'http://localhost:4000';
+  const email = process.env.SEMIONT_USER_EMAIL!;
+  const password = process.env.SEMIONT_USER_PASSWORD!;
+  const u = new URL(baseUrl);
+  const kb: KbTarget = {
+    id: 'gutenberg-build-place-articles',
+    label: 'gutenberg build-place-articles',
+    email,
+    endpoint: { kind: 'http', host: u.hostname, port: Number(u.port) || 4000, protocol: u.protocol.replace(':', '') as 'http' | 'https' },
+  };
+  const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
+  const semiont = session.client;
 
   try {
     const all = (await semiont.browse.resources({ limit: 1000 }).fresh()).resources;
@@ -58,14 +54,30 @@ async function main(): Promise<void> {
     type AnnoRef = { rId: ResourceId; annId: AnnotationId; text: string; entityTypes: string[] };
     const placeAnnotations: AnnoRef[] = [];
     for (const r of passages) {
-      const rId = r['@id'];
+      const rId = ridBrand(r['@id']);
       const annotations = await semiont.browse.annotations(rId).fresh();
       for (const ann of annotations) {
         if (ann.motivation !== 'linking') continue;
-        const ets = getEntityTypes(ann);
-        const matchedPlaces = ets.filter((t) => PLACE_TYPES.has(t));
+        const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+        const ets = bodies
+          .flatMap((b) =>
+            b.type === 'TextualBody' && b.purpose === 'tagging'
+              ? (Array.isArray(b.value) ? b.value : [b.value])
+              : [],
+          );
+        const matchedPlaces = ets.filter((t: string) => PLACE_TYPES.has(t));
         if (matchedPlaces.length === 0) continue;
-        const text = getAnnotationExactText(ann);
+        const target = ann.target;
+        const selectors =
+          typeof target === 'string' || !target.selector
+            ? []
+            : Array.isArray(target.selector)
+              ? target.selector
+              : [target.selector];
+        let text = '';
+        for (const s of selectors) {
+          if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
+        }
         placeAnnotations.push({
           rId,
           annId: ann.id,
@@ -107,7 +119,9 @@ async function main(): Promise<void> {
       const sample = anns[0];
       if (!sample) continue;
 
-      const { response: context } = await semiont.gather.annotation(sample.rId, sample.annId, { contextWindow: 1500 });
+      const gather = await semiont.gather.annotation(sample.rId, sample.annId, { contextWindow: 1500 });
+      if (!('response' in gather)) continue;
+      const context = gather.response as GatheredContext;
 
       const matchResult = await semiont.match.search(sample.rId, sample.annId, context, {
         limit: 5,
@@ -115,7 +129,7 @@ async function main(): Promise<void> {
       });
       const top = matchResult.response[0];
 
-      let targetResourceId: ResourceId;
+      let targetResourceId: string;
       if (top && (top.score ?? 0) >= MATCH_THRESHOLD) {
         targetResourceId = top['@id'];
         console.log(`  ↪ "${sample.text}" → ${top.name} (existing, score ${top.score})`);
@@ -135,8 +149,7 @@ async function main(): Promise<void> {
           `\n${externalRefsLine}\n` +
           `Write in a neutral, encyclopedic tone — model on a curated wiki article.`;
 
-        const generated = await semiont.yield.delegate({
-          context,
+        const yieldEvent = await semiont.yield.fromContext(context, {
           title: sample.text,
           storageUri: `file://generated/place-${slugify(sample.text)}.md`,
           prompt,
@@ -144,11 +157,15 @@ async function main(): Promise<void> {
           // the source annotations carried. De-duplicated.
           entityTypes: Array.from(new Set(['Place', ...sample.entityTypes])),
         });
-        if (!generated.result || !('resourceId' in generated.result)) {
-          console.warn(`  the generation made no resource for "${sample.text}"`);
+        if (yieldEvent.kind !== 'complete') {
+          console.warn(`  unexpected yield event: ${yieldEvent.kind} for "${sample.text}"`);
           continue;
         }
-        const newRId = generated.result.resourceId;
+        const newRId = (yieldEvent.data.result as { resourceId?: string } | undefined)?.resourceId;
+        if (!newRId) {
+          console.warn(`  yield.fromContext gave no resourceId for "${sample.text}"`);
+          continue;
+        }
         targetResourceId = newRId;
         synthesized++;
         console.log(`  + "${sample.text}" → ${newRId} (synthesized${wikiUrl ? `, Wikipedia: ${wikiUrl}` : ''})`);
@@ -170,7 +187,7 @@ async function main(): Promise<void> {
     );
     closeInteractive();
   } finally {
-    opened.dispose();
+    await session.dispose();
   }
 }
 

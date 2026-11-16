@@ -4,61 +4,60 @@
  *
  * Two-pass: discovery + aggregation.
  *
- *   Pass 1 — mark.delegate with motivation 'commenting'. The instructions ask
- *   the model to comment on every thematically-significant span, with the
- *   theme alone as the comment: a short hyphenated phrase (e.g. 'hubris',
- *   'fate-vs-free-will', 'divine-cruelty'). The theme labels are an open
- *   per-corpus vocabulary, not a registered structural schema.
+ *   Pass 1 — mark.assist with motivation 'linking' and a single generic
+ *   entity type 'Theme'. The instructions ask the model to mark every
+ *   thematically-significant span and include the specific hyphenated theme
+ *   name as a tagging-purpose body value (e.g. 'hubris', 'fate-vs-free-will',
+ *   'divine-cruelty'). This is the *vocabulary classification* shape — the
+ *   theme labels are an open per-corpus enum, not a registered structural
+ *   schema. After the run, the discovered theme labels get published via
+ *   frame.addEntityTypes so browse.entityTypes() surfaces them as part of
+ *   the KB's vocabulary.
  *
- *   Pass 2 — walk every commenting annotation whose comment is such a label,
- *   group by label, publish the labels via frame.addEntityTypes so
- *   browse.entityTypes() surfaces them, and synthesize one Theme resource per
- *   distinct label.
+ *   Pass 2 — walk every linking annotation, extract the discovered theme
+ *   labels (the tagging body values that aren't the umbrella 'Theme' tag),
+ *   group by label, synthesize one Theme resource per distinct label.
  *
- * Why commenting? It is a job that takes instructions and records the model's
- * own words on a span. A linking job detects mentions of entity types and
- * takes no instructions; a tagging job needs a registered schema of
- * categories, which an open vocabulary is not.
+ * Why not motivation 'tagging'? Tagging requires a registered schemaId from
+ * src/tag-schemas.ts — appropriate for IRAC / IMRAD /
+ * Toulmin (broadly-applicable structural-analysis frameworks). Open-
+ * vocabulary themes are a per-corpus enum and don't deserve a registered
+ * schema; the linking shape is the right fit.
  *
  * Usage: tsx skills/extract-themes/script.ts [--interactive]
  */
 
-import { SemiontSession, InMemorySessionStorage, httpKb, getAnnotationExactText, getCommentText, type ResourceId } from '@semiont/sdk';
+import { SemiontSession, InMemorySessionStorage, entityType, resourceId as ridBrand, type KbTarget, type ResourceId } from '@semiont/sdk';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
+import { createdCount } from '../../src/mark-result.js';
 
 const DEFAULT_INSTRUCTIONS =
-  'Comment on every passage that exemplifies a recurring thematic concern of the work. ' +
-  'Make each comment the theme alone, as one short hyphenated phrase in lower case ' +
-  '(e.g. "hubris", "fate-vs-free-will", "fire-as-civilization", "divine-cruelty"), with no ' +
-  'other words. The same theme may apply to many passages; comment on each.';
+  'Mark every passage that exemplifies a recurring thematic concern of the work. ' +
+  'For each marked span, attach the specific theme as a hyphenated phrase via a ' +
+  'tagging-purpose body value (e.g. "hubris", "fate-vs-free-will", "fire-as-civilization", ' +
+  '"divine-cruelty"). The same theme may apply to many passages; mark each. The umbrella ' +
+  '"Theme" entity-type tag is added automatically — do not duplicate it as a tagging value.';
 
 const INSTRUCTIONS = process.env.THEME_INSTRUCTIONS ?? DEFAULT_INSTRUCTIONS;
-
-// A theme label, as the instructions ask for it. Other comments in the
-// knowledge base (comment-subtext writes sentences) do not read as one.
-const THEME_LABEL = /^[a-z0-9]+(?:-[a-z0-9]+){0,5}$/;
+const UMBRELLA_THEME_TAG = 'Theme';
 
 function slugify(text: string): string {
   return text.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
 async function main(): Promise<void> {
-  const gateway = new URL(process.env.SEMIONT_API_URL ?? 'http://localhost:4000');
-  const opened = await SemiontSession.signInDevice({
-    kb: httpKb({
-      id: 'gutenberg-extract-themes',
-      label: 'gutenberg extract-themes',
-      host: gateway.hostname,
-      port: Number(gateway.port) || 4000,
-      protocol: gateway.protocol === 'https:' ? 'https' : 'http',
-    }),
-    storage: new InMemorySessionStorage(),
-    onCode: ({ verificationUri, verificationUriComplete, userCode }) => {
-      console.error(`Approve this script at ${verificationUriComplete ?? verificationUri}`);
-      if (!verificationUriComplete) console.error(`Code: ${userCode}`);
-    },
-  });
-  const semiont = opened.session.client;
+  const baseUrl = process.env.SEMIONT_API_URL ?? 'http://localhost:4000';
+  const email = process.env.SEMIONT_USER_EMAIL!;
+  const password = process.env.SEMIONT_USER_PASSWORD!;
+  const u = new URL(baseUrl);
+  const kb: KbTarget = {
+    id: 'gutenberg-extract-themes',
+    label: 'gutenberg extract-themes',
+    email,
+    endpoint: { kind: 'http', host: u.hostname, port: Number(u.port) || 4000, protocol: u.protocol.replace(':', '') as 'http' | 'https' },
+  };
+  const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
+  const semiont = session.client;
 
   try {
     const all = (await semiont.browse.resources({ limit: 1000 }).fresh()).resources;
@@ -71,8 +70,8 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `Will run mark.delegate (motivation: commenting) against ${passages.length} passage(s) ` +
-        `for theme discovery.`,
+      `Will run mark.assist (motivation: linking, entityTypes: ['${UMBRELLA_THEME_TAG}']) ` +
+        `against ${passages.length} passage(s) for theme discovery.`,
     );
     const proceed = await confirm('Proceed?', true);
     if (!proceed) {
@@ -81,11 +80,15 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Pass 1: discovery — comment on thematic spans, each comment a theme label.
+    // Pass 1: discovery — mark thematic spans as Theme-typed linking annotations,
+    // with discovered theme labels as tagging-purpose body values.
     for (const r of passages) {
-      const rId = r['@id'];
-      const done = await semiont.mark.delegate(rId, { motivation: 'commenting', instructions: INSTRUCTIONS });
-      const n = done.result && 'persisted' in done.result ? done.result.persisted : 0;
+      const rId = ridBrand(r['@id']);
+      const progress = await semiont.mark.assist(rId, 'linking', {
+        entityTypes: [entityType(UMBRELLA_THEME_TAG)],
+        instructions: INSTRUCTIONS,
+      });
+      const n = createdCount(progress);
       console.log(`  ${rId}: ${n} thematic spans`);
     }
 
@@ -94,15 +97,45 @@ async function main(): Promise<void> {
     const themesByLabel = new Map<string, Array<{ rId: ResourceId; rName: string; text: string }>>();
 
     for (const r of passages) {
-      const rId = r['@id'];
+      const rId = ridBrand(r['@id']);
       const annotations = await semiont.browse.annotations(rId).fresh();
       for (const ann of annotations) {
-        if (ann.motivation !== 'commenting') continue;
-        const label = getCommentText(ann)?.trim().toLowerCase();
-        if (!label || !THEME_LABEL.test(label)) continue;
-        const text = getAnnotationExactText(ann);
-        if (!themesByLabel.has(label)) themesByLabel.set(label, []);
-        themesByLabel.get(label)!.push({ rId, rName: r.name, text });
+        if (ann.motivation !== 'linking') continue;
+        const bodies = Array.isArray(ann.body) ? ann.body : ann.body ? [ann.body] : [];
+        const tagValues = bodies
+          .flatMap((b) =>
+            b.type === 'TextualBody' && b.purpose === 'tagging'
+              ? (Array.isArray(b.value) ? b.value : [b.value])
+              : [],
+          )
+          // Keep only the discovered theme labels — drop the umbrella 'Theme' entity-type tag.
+          .filter((v: string) => v && v !== UMBRELLA_THEME_TAG);
+
+        // Only annotations that *also* carry the umbrella 'Theme' tag are theme spans
+        // (this filters out other linking annotations the corpus may have).
+        const carriesUmbrella = bodies.some(
+          (b) =>
+            b.type === 'TextualBody' &&
+            b.purpose === 'tagging' &&
+            (Array.isArray(b.value) ? b.value : [b.value]).includes(UMBRELLA_THEME_TAG),
+        );
+        if (!carriesUmbrella) continue;
+
+        const target = ann.target;
+        const selectors =
+          typeof target === 'string' || !target.selector
+            ? []
+            : Array.isArray(target.selector)
+              ? target.selector
+              : [target.selector];
+        let text = '';
+        for (const s of selectors) {
+          if (s.type === 'TextQuoteSelector') { text = s.exact; break; }
+        }
+        for (const label of tagValues) {
+          if (!themesByLabel.has(label)) themesByLabel.set(label, []);
+          themesByLabel.get(label)!.push({ rId, rName: r.name ?? r['@id'], text });
+        }
       }
     }
 
@@ -147,7 +180,7 @@ async function main(): Promise<void> {
     );
     closeInteractive();
   } finally {
-    opened.dispose();
+    await session.dispose();
   }
 }
 

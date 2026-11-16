@@ -36,18 +36,18 @@ Before bulk upload: `confirm` after showing the per-class summary.
 
 ## Run it
 
-**Prerequisite: the Semiont stack is running** — see [AGENTS.md › Stack setup](../../AGENTS.md#stack-setup).
+**Prerequisite: the Semiont backend is running** — see [AGENTS.md › Backend setup](../../AGENTS.md#backend-setup).
 
 ```bash
 HOST_ADDR=$(container run --rm node:24-alpine sh -c "ip route | awk '/default/{print \$3}'" 2>/dev/null | tr -d '[:space:]')
 
 container run --rm -v "$(pwd):/work" -w /work \
   -e SEMIONT_API_URL=http://${HOST_ADDR}:4000 \
+  -e SEMIONT_USER_EMAIL=admin@example.com \
+  -e SEMIONT_USER_PASSWORD=<your-password> \
   node:24-alpine \
-  sh -c 'npm ci --no-audit --no-fund && npx tsx skills/ingest-corpus/script.ts'
+  sh -c 'npm install --silent --no-fund @semiont/sdk tsx && npx tsx skills/ingest-corpus/script.ts'
 ```
-
-The script prints an address: open it in a browser and approve the sign-in. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
 
 Add `-e SEMIONT_INTERACTIVE=1 -it` to enable the confirm prompt.
 
@@ -61,6 +61,6 @@ Per-file resource id and entity types. Note these — downstream skills (`mark-c
 
 ## Guidance for the AI assistant
 
-- **Re-running creates duplicates.** No deduplication. Use `semiont.browse.resources({ search: '<title>' })` to check before re-running, or restart the stack to start fresh.
+- **Re-running creates duplicates.** No deduplication. Use `semiont.browse.resources({ search: '<title>' })` to check before re-running, or restart the backend stack to start fresh.
 - **Pre-curated `places/`, `characters/`, `themes/` content survives.** Skill 1 ingests them as Place / Character / Theme resources on day 1; skills 6 and 7 match against them rather than overwriting. A user wanting to seed their own KB with curated articles drops them into the appropriate subdirectory.
 - **`data/ebooks/` contents are mostly informational.** They're cataloged as Ebook resources but downstream skills don't operate on them directly — `mark-*` skills work on the section files. Useful for "where did this passage come from" lookups.

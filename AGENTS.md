@@ -16,21 +16,21 @@ If you're an AI assistant working in this repo, this file is your orientation. T
   - `src/wikipedia.ts` — Wikipedia URL lookups + "External references" formatting (cached locally to `.cache/wikipedia/`)
   - `src/handlers/gutenberg.ts` — `downloadGutenbergText` + `extractGutenbergSection` for fetching new ebooks on demand
   - `src/interactive.ts` — `confirm` / `pick` / `preview` helpers for tier-3 interactive checkpoints
-- **`skills/`** — twelve skills, each shipping a `SKILL.md` plus a `script.ts` that uses `@semiont/sdk` against the running stack.
+- **`skills/`** — twelve skills, each shipping a `SKILL.md` plus a `script.ts` that uses `@semiont/sdk` against the running backend.
 
 | Skill | What it does | New SDK verbs |
 |---|---|---|
 | [`ingest-corpus`](skills/ingest-corpus/) | Walk the repo, declare the KB's entity-type vocabulary, create one resource per file | `frame.addEntityTypes`, `yield.resource` |
 | [`register-tag-schemas`](skills/register-tag-schemas/) | One-time bootstrap — register the KB's tag schemas (`argument-toulmin`) with the runtime | `frame.addTagSchema` |
-| [`mark-characters`](skills/mark-characters/) | Detect Character mentions (named + descriptive) | `mark.delegate` (linking + descriptive references) |
-| [`mark-places`](skills/mark-places/) | Detect Place mentions | `mark.delegate` (linking) |
-| [`assess-dangerous-situations`](skills/assess-dangerous-situations/) | Flag spans of physical / moral / supernatural danger | `mark.delegate` (assessing) |
-| [`comment-subtext`](skills/comment-subtext/) | Inline subtext / inner-thought / plot-significance commentary | `mark.delegate` (commenting) |
-| [`build-character-articles`](skills/build-character-articles/) | Promote Character mentions to canonical wiki-style Character resources with Wikipedia citations | `+ yield.delegate` |
-| [`build-place-articles`](skills/build-place-articles/) | Promote Place mentions to canonical Place resources with Wikipedia citations; matches against curated articles | `+ yield.delegate` |
-| [`map-relationships`](skills/map-relationships/) | Record character-character + character-place relationships the assistant decides, each a Relationship resource its passage is bound to | `yield.resource`, `mark.annotation`, `bind.body` |
-| [`build-historical-context`](skills/build-historical-context/) | Synthesize HistoricalContext resources anchoring the work in real-world history, citing Wikipedia | `+ yield.delegate` |
-| [`extract-themes`](skills/extract-themes/) | Comment on recurring thematic concerns and synthesize a Theme resource for each | `mark.delegate` (commenting) |
+| [`mark-characters`](skills/mark-characters/) | Detect Character mentions (named + descriptive) | `mark.assist` (linking + descriptive references) |
+| [`mark-places`](skills/mark-places/) | Detect Place mentions | `mark.assist` (linking) |
+| [`assess-dangerous-situations`](skills/assess-dangerous-situations/) | Flag spans of physical / moral / supernatural danger | `mark.assist` (assessing) |
+| [`comment-subtext`](skills/comment-subtext/) | Inline subtext / inner-thought / plot-significance commentary | `mark.assist` (commenting) |
+| [`build-character-articles`](skills/build-character-articles/) | Promote Character mentions to canonical wiki-style Character resources with Wikipedia citations | `+ yield.fromContext` |
+| [`build-place-articles`](skills/build-place-articles/) | Promote Place mentions to canonical Place resources with Wikipedia citations; matches against curated articles | `+ yield.fromContext` |
+| [`map-relationships`](skills/map-relationships/) | Extract character-character + character-place relationships, encode as binding annotations | `mark.assist`, `bind.body` |
+| [`build-historical-context`](skills/build-historical-context/) | Synthesize HistoricalContext resources anchoring the work in real-world history, citing Wikipedia | `+ yield.resource` |
+| [`extract-themes`](skills/extract-themes/) | Tag and synthesize Theme resources for recurring thematic concerns | `mark.assist` (tagging) |
 | [`trace-plot-arc`](skills/trace-plot-arc/) | Per-work narrative-structure synthesis — inciting incident, rising action, climax, denouement | full pipeline composition |
 
 ## What does literary analysis involve?
@@ -83,13 +83,13 @@ The SDK does not yet have a first-class verb for representing external links. Fo
 
 ## Working in containers — do not install npm packages on the host
 
-This template assumes a containerized workflow. The stack runs in containers (`semiont start` brings it up); the skills run in containers too. There is **no need** to install Node, the SDK, or any other tooling on the host machine.
+This template assumes a containerized workflow. The backend stack runs in containers (`semiont start` brings it up); the skills run in containers too. There is **no need** to install Node, the SDK, or any other tooling on the host machine.
 
 Each skill's `SKILL.md` shows a `container run` invocation that mounts the repo, installs `@semiont/sdk` and `tsx` *inside* a throwaway container, then runs the skill's `script.ts`. See [`skills/ingest-corpus/SKILL.md`](skills/ingest-corpus/SKILL.md) for the full networking discussion (the `HOST_ADDR` discovery probe).
 
-## Stack setup
+## Backend setup
 
-Before running any skill, the Semiont stack must be up. Two paths:
+Before running any skill, the Semiont backend stack must be up. Two paths:
 
 ### Local: `semiont start`
 
@@ -108,13 +108,7 @@ Flags: `--config anthropic` for cloud inference (requires `ANTHROPIC_API_KEY`), 
 
 ### Codespaces
 
-From your machine, `semiont start --runtime codespace --repo The-AI-Alliance/semiont-gutenberg-kb` creates or resumes the codespace, waits for the stack (which the codespace's own launcher runs), and forwards the KB (4000) and its Keycloak (8080), or the next free ports it prints. No account is created — make the first one; it prompts for the password:
-
-```bash
-semiont useradd --repo The-AI-Alliance/semiont-gutenberg-kb --email you@example.com
-```
-
-`semiont stop --repo The-AI-Alliance/semiont-gutenberg-kb` stops the codespace; add `--delete` to destroy it.
+Open the repo in a Codespace — `post-create.sh` pulls the stack's images, `post-start.sh` brings it up. No account is created — make the first admin with `docker compose -f .semiont/compose/backend.yml exec backend semiont-useradd --email you@example.com --generate-password --admin`. Forward the port: `gh codespace ports forward 4000:4000`.
 
 ## Parameterization and interactivity
 
@@ -124,9 +118,9 @@ Skills are parameterized in three tiers.
 
 | Var | Purpose |
 |---|---|
-| `SEMIONT_API_URL` | Gateway URL (default `http://localhost:4000`) |
-
-A skill signs in by the device grant: it prints an address, and a person approves in a browser. No password passes through the script. [Signing in](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/SIGN-IN.md) has the other ways a script can sign in.
+| `SEMIONT_API_URL` | Backend URL (default `http://localhost:4000`) |
+| `SEMIONT_USER_EMAIL` | Authenticating user |
+| `SEMIONT_USER_PASSWORD` | Authenticating user's password |
 
 ### Tier 2 — skill-invocation parameters
 
@@ -145,7 +139,7 @@ Tier-2 env vars can pre-answer tier-3 prompts (e.g., `MATCH_THRESHOLD=25` pre-an
 | Where | What |
 |---|---|
 | [`@semiont/sdk` README](https://github.com/The-AI-Alliance/semiont/tree/main/packages/sdk) | The TypeScript surface — eight verbs (frame, yield, mark, match, bind, gather, browse, beckon) plus admin/auth/job. |
-| [SDK Usage docs](https://github.com/The-AI-Alliance/semiont/blob/main/docs/builder/Usage.md) | Cache semantics, reactive model, state units, error handling. |
+| [SDK Usage docs](https://github.com/The-AI-Alliance/semiont/tree/main/packages/sdk/docs) | Cache semantics, reactive model, state units, error handling. |
 | [Semiont protocol docs](https://github.com/The-AI-Alliance/semiont/tree/main/docs/protocol) | The eight-flow framing. |
-| [Semiont agent skills](https://github.com/The-AI-Alliance/semiont/tree/main/docs/builder/skills) | Reference skill packs — `semiont-wiki`, `semiont-comment`, `semiont-highlight`, etc. The patterns in this repo borrow from these. |
+| [Semiont protocol skills](https://github.com/The-AI-Alliance/semiont/tree/main/docs/protocol/skills) | Reference skill packs — `semiont-wiki`, `semiont-comment`, `semiont-highlight`, etc. The patterns in this repo borrow from these. |
 | [.plans/LITERATURE-SKILLS.md](.plans/LITERATURE-SKILLS.md) | The full design plan for these skills. |

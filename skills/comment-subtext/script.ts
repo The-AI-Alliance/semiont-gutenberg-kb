@@ -2,15 +2,16 @@
  * comment-subtext — annotate inner thoughts, subtext, and plot-significance
  * markers in literary passages.
  *
- * Single mark.delegate with motivation 'commenting'. Captures what characters
+ * Single mark.assist with motivation 'commenting'. Captures what characters
  * aren't saying out loud, dramatic irony, foreshadowing, and small actions
  * that move the plot forward.
  *
  * Usage: tsx skills/comment-subtext/script.ts [<resourceId>] [--interactive]
  */
 
-import { SemiontSession, InMemorySessionStorage, httpKb, resourceId as ridBrand, type ResourceId } from '@semiont/sdk';
+import { SemiontSession, InMemorySessionStorage, resourceId as ridBrand, type KbTarget, type ResourceId } from '@semiont/sdk';
 import { confirm, close as closeInteractive } from '../../src/interactive.js';
+import { createdCount } from '../../src/mark-result.js';
 
 const DEFAULT_INSTRUCTIONS = `
 For each substantive passage, where appropriate, add a commenting annotation that captures one of:
@@ -26,22 +27,18 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2).filter((a) => !a.startsWith('-'));
   const explicitResourceId = args[0];
 
-  const gateway = new URL(process.env.SEMIONT_API_URL ?? 'http://localhost:4000');
-  const opened = await SemiontSession.signInDevice({
-    kb: httpKb({
-      id: 'gutenberg-comment-subtext',
-      label: 'gutenberg comment-subtext',
-      host: gateway.hostname,
-      port: Number(gateway.port) || 4000,
-      protocol: gateway.protocol === 'https:' ? 'https' : 'http',
-    }),
-    storage: new InMemorySessionStorage(),
-    onCode: ({ verificationUri, verificationUriComplete, userCode }) => {
-      console.error(`Approve this script at ${verificationUriComplete ?? verificationUri}`);
-      if (!verificationUriComplete) console.error(`Code: ${userCode}`);
-    },
-  });
-  const semiont = opened.session.client;
+  const baseUrl = process.env.SEMIONT_API_URL ?? 'http://localhost:4000';
+  const email = process.env.SEMIONT_USER_EMAIL!;
+  const password = process.env.SEMIONT_USER_PASSWORD!;
+  const u = new URL(baseUrl);
+  const kb: KbTarget = {
+    id: 'gutenberg-comment-subtext',
+    label: 'gutenberg comment-subtext',
+    email,
+    endpoint: { kind: 'http', host: u.hostname, port: Number(u.port) || 4000, protocol: u.protocol.replace(':', '') as 'http' | 'https' },
+  };
+  const session = await SemiontSession.signInHttp({ kb, storage: new InMemorySessionStorage(), baseUrl, email, password });
+  const semiont = session.client;
 
   try {
     let targets: ResourceId[];
@@ -51,7 +48,7 @@ async function main(): Promise<void> {
       const all = (await semiont.browse.resources({ limit: 1000 }).fresh()).resources;
       targets = all
         .filter((r) => (r.entityTypes ?? []).some((t) => t === 'LiteraryPassage'))
-        .map((r) => r['@id']);
+        .map((r) => ridBrand(r['@id']));
     }
 
     if (targets.length === 0) {
@@ -60,7 +57,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    console.log(`Will run mark.delegate (motivation: commenting) against ${targets.length} passage(s).`);
+    console.log(`Will run mark.assist (motivation: commenting) against ${targets.length} passage(s).`);
     const proceed = await confirm('Proceed?', true);
     if (!proceed) {
       console.log('Aborted.');
@@ -70,8 +67,8 @@ async function main(): Promise<void> {
 
     let totalCreated = 0;
     for (const rId of targets) {
-      const done = await semiont.mark.delegate(rId, { motivation: 'commenting', instructions: INSTRUCTIONS });
-      const n = done.result && 'persisted' in done.result ? done.result.persisted : 0;
+      const progress = await semiont.mark.assist(rId, 'commenting', { instructions: INSTRUCTIONS });
+      const n = createdCount(progress);
       totalCreated += n;
       console.log(`  ${rId}: ${n} subtext comments added`);
     }
@@ -79,7 +76,7 @@ async function main(): Promise<void> {
     console.log(`\nDone. Added ${totalCreated} subtext / inner-thought / plot-significance comments.`);
     closeInteractive();
   } finally {
-    opened.dispose();
+    await session.dispose();
   }
 }
 
